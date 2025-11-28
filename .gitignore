@@ -1,0 +1,44 @@
+# =========================================
+# NODE / JS
+# =========================================
+node_modules/
+dist/
+build/
+uploads/
+
+# =========================================
+# ENV / SECRETS
+# =========================================
+.env
+*.env
+backend/.env
+frontend/.env
+frontend/.env.local
+
+# Do NOT upload TLS certificates
+*.pem
+*.key
+*.crt
+
+localhost+2-key.pem
+localhost+2.pem
+
+*localhost+2-key.pem
+*localhost+2.pem
+
+# =========================================
+# TEST SCRIPTS (optional ignore for safety)
+testPublish.js
+
+# =========================================
+# OS / SYSTEM FILES
+.DS_Store
+Thumbs.db
+
+# =========================================
+# IDE FILES
+.vscode/
+.idea/
+
+#ngrok
+ngrok.exe

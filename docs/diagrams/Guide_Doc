@@ -1,0 +1,24 @@
+my-fb-ig-connect/ # root folder (git repo)
+├─ README.md # summary (root)
+├─ CONNECT_GUIDE.md # full guide (root)
+├─ CHANGELOG.md # history (root)
+├─ .gitignore # root .gitignore
+├─ LICENSE # root license
+├─ docs/ # optional: screenshot or additional docs
+│ └─ assets/
+├─ backend/ # backend server code
+│ ├─ package.json
+│ ├─ server.js (or app.js / uploadShare.js)
+│ ├─ controllers/
+│ ├─ routes/
+│ ├─ controllers/sendEmail.js
+│ ├─ controllers/uploadShare.js
+│ └─ .env # store App ID / App Secret / tokens here (DO NOT commit)
+└─ frontend/ # frontend (React/Vite/Next) for testing & production
+├─ package.json
+├─ src/
+│ ├─ main.jsx
+│ ├─ App.jsx
+│ └─ components/
+├─ public/
+└─ README_FRONTEND.md # instructions for frontend local testing

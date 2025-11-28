@@ -1,0 +1,17 @@
+.App {
+  text-align: center;
+  padding: 20px;
+}
+
+.Share-content{
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.share {
+  margin: 20px;
+  padding: 10px;
+  border: 1px solid #ccc;
+  width: 300px;
+}

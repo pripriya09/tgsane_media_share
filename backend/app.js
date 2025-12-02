@@ -1,19 +1,25 @@
 import express from "express";
 import cors from "cors";
 import mongoose from "mongoose";
-import dotenv from "dotenv";
-dotenv.config();
+
+
 
 import adminRoute from "./route/adminRoute.js";
 import userRoute from "./route/userRoute.js";
 import { startTokenRefreshCron } from "./utils/cronRefresh.js";
 import { uploadLocalToCloudinary } from "./utils/cloudinaryHelper.js";
 
-import multer from "multer";
+
 
 import path from "path";
 import fs from "fs";
 
+
+import { v2 as cloudinary } from "cloudinary";
+import multer from "multer";
+import streamifier from "streamifier";
+import dotenv from "dotenv";
+dotenv.config();
 
 
 // connect db
@@ -43,11 +49,26 @@ app.use('/uploads', express.static(UPLOAD_DIR));
 // app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+
+
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
 });
+
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
+
+
+
+
+
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+//   filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+// });
+// const upload = multer({ storage });
 
 app.get("/upload", (req, res) => {
   try {
@@ -58,18 +79,30 @@ app.get("/upload", (req, res) => {
   }
 });
 
-app.post("/upload", upload.single("image"), async (req, res) => {
+
+app.post("/upload", upload.single("file"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "No file uploaded; field name must be 'image'" });
-    const localPath = req.file.path;
-    const secureUrl = await uploadLocalToCloudinary(localPath);
-    fs.unlinkSync(localPath);
-    return res.status(201).json({ title: req.body.title || "", image: secureUrl });
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+    const isVideo = req.file.mimetype.startsWith("video/");
+    const resource_type = isVideo ? "video" : "image";
+
+    const result = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { resource_type, folder: "fb_ig_uploads" },
+        (err, r) => err ? reject(err) : resolve(r)
+      );
+      streamifier.createReadStream(req.file.buffer).pipe(uploadStream);
+    });
+
+    // result.secure_url is a public HTTPS link
+    return res.status(201).json({ url: result.secure_url, resource_type });
   } catch (err) {
-    console.error("upload error", err);
-    return res.status(500).json({ error: err.message });
+    console.error("Upload error:", err);
+    return res.status(500).json({ error: (err && err.message) || "Upload failed" });
   }
 });
+
 
 
 

@@ -12,7 +12,7 @@
     "@sendgrid/mail": "^8.1.4",
     "axios": "^1.13.2",
     "bcrypt": "^5.1.1",
-    "cloudinary": "^2.5.0",
+    "cloudinary": "^2.8.0",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^16.4.7",
@@ -28,6 +28,7 @@
     "oauth-1.0a": "^2.2.6",
     "qrcode": "^1.5.4",
     "speakeasy": "^2.0.0",
+    "streamifier": "^0.1.1",
     "twilio": "^5.3.6",
     "twitter-api-v2": "^1.18.1"
   }

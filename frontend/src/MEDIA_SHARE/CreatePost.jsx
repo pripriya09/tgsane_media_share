@@ -138,56 +138,56 @@ useEffect(() => {
     }
     return `${when ? when + ": " : ""}${err.message || String(err)}`;
   }
-
   async function handleUpload(e) {
     e.preventDefault();
     if (!imageFile) {
-      alert("Please choose an image to upload.");
+      alert("Please choose an image OR video to upload.");
       return;
     }
-
+  
     setLoading(true);
     try {
       setErrorMsg("");
       const fd = new FormData();
       fd.append("title", title || "");
-      fd.append("image", imageFile);
-
-      const res = await api.post("/upload", fd);
-      console.debug("upload response:", res.data);
-      
-      // depending on your backend, it might return the created object directly or under data
-      const uploaded = res.data || res.data?.data;
+      // Use single generic field name "file" (server should accept upload.single("file") or upload.any())
+      fd.append("file", imageFile);
+  
+      const isVideo = imageFile.type.startsWith("video/");
+      fd.append("type", isVideo ? "video" : "image");
+  
+      const res = await api.post("/upload", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+  
+      const uploaded = res.data;
       if (!uploaded) {
         await fetchContent();
         return;
-      } else {
-        // If backend didn't return created item, re-fetch list
-        await fetchContent();
       }
-      
-      // If backend returned a local path (like /uploads/...), try to convert to absolute using API URL
-      let imageUrl = uploaded.image || "";
-      if (imageUrl.startsWith("/uploads")) {
-        // this is still local — try to use the full backend URL (but note: localhost won't work for FB/IG)
-        const base = import.meta.env.VITE_API_URL || "";
-        imageUrl = base ? `${base.replace(/\/$/, "")}${imageUrl}` : imageUrl;
-      }
-      // If you have secure URL from cloudinary, prefer that
-      // assume uploadLocalToCloudinary returns https URL and backend puts that in uploaded.image
-      setContentData(prev => [{ ...uploaded, image: imageUrl }, ...prev]);
+  
+      const returnedUrl = uploaded.url || uploaded.image || uploaded.videoUrl || "";
+      const item = {
+        ...uploaded,
+        title: uploaded.title || title,
+        type: isVideo ? "video" : "image",
+        image: isVideo ? null : returnedUrl,
+        videoUrl: isVideo ? returnedUrl : null,
+      };
+  
+      setContentData(prev => [item, ...prev]);
       setTitle("");
       setImageFile(null);
-      
+  
     } catch (err) {
       console.error("Upload failed:", err);
-      setErrorMsg(buildErrorMessage(err, "uploading image"));
+      setErrorMsg(buildErrorMessage(err, "uploading file"));
       alert("Upload failed: " + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
     }
   }
-
+  
   // Post to backend to publish to FB/IG
   async function handlePost(cont, options = { postToFB: true, postToIG: true, pageId: null }) {
     try {
@@ -224,19 +224,28 @@ useEffect(() => {
         return;
       }
 
+      // use appropriate url validation depending on content type
+if (cont.type === "video") {
+  const url = cont.videoUrl || cont.image || "";
+  if (!url || !url.startsWith("https://")) {
+    alert("Video must be a public HTTPS URL (Cloudinary or CDN). Please upload or re-upload the video.");
+    return;
+  }
+} else {
+  const url = cont.image || "";
+  if (!url || !url.startsWith("https://")) {
+    alert("Image must be a public HTTPS URL (Cloudinary or CDN). Please upload or re-upload the image.");
+    return;
+  }
+}
 
-
-
-      const imageUrl = cont.image || "";
-      if (!imageUrl.startsWith("https://")) {
-        alert("Image must be a public HTTPS URL (Cloudinary or CDN). Please upload or re-upload the image.");
-        return;
-      }
       const body = {
         userId: user._id,
         pageId: resolvedPageId,
         title: cont.title,
-        image: cont.image,
+        type: cont.type || "image",                 // "image" or "video"
+        image: cont.type === "image" ? cont.image : null,
+        videoUrl: cont.type === "video" ? (cont.videoUrl || cont.image) : null,
         postToFB: !!options.postToFB,
         postToIG: !!options.postToIG,
       };
@@ -270,12 +279,12 @@ useEffect(() => {
           onChange={(e) => setTitle(e.target.value)}
           style={{ width: "100%", padding: 8, marginBottom: 8 }}
         />
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => setImageFile(e.target.files[0])}
-          style={{ marginBottom: 8 }}
-        />
+    <input
+  type="file"
+  accept="image/*,video/*"
+  onChange={(e) => setImageFile(e.target.files[0])}
+/>
+
         <div style={{ marginTop: 8, marginBottom: 8 }}>
           {/* If you want to hide the select and always use the first available page, comment out the select element */}
           {pages.length > 1 ? (
@@ -313,13 +322,25 @@ useEffect(() => {
             {contentData.map((cont, idx) => (
               <div key={idx} style={{ border: "1px solid #ddd", padding: 8, width: 260, borderRadius: 6 }}>
                 <div style={{ width: "100%", height: 150, overflow: "hidden", borderRadius: 6 }}>
-                  <img
-                    src={buildImageUrl(cont.image)}
-                    alt={cont.title || "image"}
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                    onError={(e) => { e.currentTarget.src = ""; }}
-                  />
-                </div>
+  {cont.type === "video" ? (
+    <video
+      controls
+      src={buildImageUrl(cont.videoUrl || cont.image)}
+      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+      onError={(e) => { e.currentTarget.src = ""; }}
+    />
+  ) : (
+    <img
+      src={buildImageUrl(cont.image)}
+      alt={cont.title || "image"}
+      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+      onError={(e) => { e.currentTarget.src = ""; }}
+    />
+  )}
+</div>
+
+
+
 
                 <div style={{ marginTop: 8, minHeight: 36 }}>{cont.title || "(no title)"}</div>
 

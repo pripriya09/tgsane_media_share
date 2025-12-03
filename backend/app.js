@@ -80,29 +80,49 @@ app.get("/upload", (req, res) => {
 });
 
 
-app.post("/upload", upload.single("file"), async (req, res) => {
+app.post("/upload", upload.array("file", 12), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: "No files uploaded" });
+    }
 
-    const isVideo = req.file.mimetype.startsWith("video/");
-    const resource_type = isVideo ? "video" : "image";
+    const uploadPromises = req.files.map(async (file) => {
+      const isVideo = file.mimetype.startsWith("video/");
+      const resource_type = isVideo ? "video" : "image";
 
-    const result = await new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        { resource_type, folder: "fb_ig_uploads" },
-        (err, r) => err ? reject(err) : resolve(r)
-      );
-      streamifier.createReadStream(req.file.buffer).pipe(uploadStream);
+      const result = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          { 
+            resource_type, 
+            folder: "fb_ig_uploads",
+            timeout: 120000 // 2 min for videos
+          },
+          (err, r) => (err ? reject(err) : resolve(r))
+        );
+        streamifier.createReadStream(file.buffer).pipe(uploadStream);
+      });
+
+      return {
+        url: result.secure_url,
+        resource_type: resource_type
+      };
     });
 
-    // result.secure_url is a public HTTPS link
-    return res.status(201).json({ url: result.secure_url, resource_type });
+    const uploaded = await Promise.all(uploadPromises);
+
+    // If only one file, return single object (for backward compatibility)
+    if (uploaded.length === 1) {
+      return res.status(201).json(uploaded[0]);
+    }
+
+    // Multiple files → return array
+    return res.status(201).json(uploaded);
+
   } catch (err) {
     console.error("Upload error:", err);
-    return res.status(500).json({ error: (err && err.message) || "Upload failed" });
+    return res.status(500).json({ error: err.message || "Upload failed" });
   }
 });
-
 
 
 

@@ -6,13 +6,27 @@ const FB_APP_ID = (typeof import.meta !== "undefined" && import.meta.env?.VITE_F
 
 function LogMedia() {
   const [userData, setUserData] = useState(null);
-  const [hasSeenTutorial, setHasSeenTutorial] = useState(false); // ← ADDED THIS LINE
+  const [hasSeenTutorial, setHasSeenTutorial] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [connectedPages, setConnectedPages] = useState([]);
+  const [userProfile, setUserProfile] = useState(null);
 
   useEffect(() => {
+    // Check if user has seen tutorial before
+    const seen = localStorage.getItem("ms_tutorial_seen");
+    if (seen === "true") {
+      setHasSeenTutorial(true);
+    } else {
+      setShowTutorial(true); // Show on first visit
+    }
+
+    // Load user profile if logged in
+    loadUserProfile();
+    loadConnectedPages();
+
     // Load Facebook SDK
     (function (d, s, id) {
-      let js,
-        fjs = d.getElementsByTagName(s)[0];
+      let js, fjs = d.getElementsByTagName(s)[0];
       if (d.getElementById(id)) return;
       js = d.createElement(s);
       js.id = id;
@@ -30,6 +44,55 @@ function LogMedia() {
     };
   }, []);
 
+  const loadUserProfile = () => {
+    try {
+      const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
+      if (user?._id) {
+        setUserProfile(user);
+      }
+    } catch (err) {
+      console.error("Failed to load user profile:", err);
+    }
+  };
+
+  const loadConnectedPages = async () => {
+    try {
+      const res = await api.get("/user/pages");
+      const pages = res.data?.pages || [];
+      setConnectedPages(pages);
+      if (pages.length > 0) {
+        localStorage.setItem("ms_pages", JSON.stringify(pages));
+      }
+    } catch (err) {
+      console.warn("Could not load pages:", err);
+    }
+  };
+
+  const closeTutorial = () => {
+    setShowTutorial(false);
+    setHasSeenTutorial(true);
+    localStorage.setItem("ms_tutorial_seen", "true");
+  };
+
+  const openTutorial = () => {
+    setShowTutorial(true);
+  };
+
+  const handleLogout = () => {
+    if (!window.confirm("Are you sure you want to logout?")) return;
+    
+    localStorage.removeItem("ms_token");
+    localStorage.removeItem("ms_user");
+    localStorage.removeItem("ms_pages");
+    localStorage.removeItem("facebook_userAccessToken");
+    
+    setUserProfile(null);
+    setConnectedPages([]);
+    
+    alert("Logged out successfully");
+    window.location.href = "/"; // Redirect to landing page
+  };
+
   const loginToAppWithFB = async (userAccessToken) => {
     try {
       const res = await api.post("/admin/login-with-facebook", { userAccessToken });
@@ -37,6 +100,7 @@ function LogMedia() {
       if (token && user) {
         localStorage.setItem("ms_token", token);
         localStorage.setItem("ms_user", JSON.stringify(user));
+        setUserProfile(user);
         console.log("DEBUG: App login via FB success", user);
       }
     } catch (err) {
@@ -60,6 +124,7 @@ function LogMedia() {
 
       if (res.data?.pages) {
         localStorage.setItem("ms_pages", JSON.stringify(res.data.pages));
+        setConnectedPages(res.data.pages);
       }
 
       return res.data;
@@ -89,6 +154,7 @@ function LogMedia() {
 
               window.dispatchEvent(new CustomEvent("pagesUpdated", { detail: { pages: newPages } }));
               alert("Facebook connected successfully!");
+              loadConnectedPages();
             } catch (err) {
               console.error("Facebook connect failed:", err);
               alert("Connection failed: " + (err.response?.data?.error || err.message));
@@ -105,11 +171,9 @@ function LogMedia() {
   };
 
   return (
-    <div style={{ padding: 16, textAlign: "center" }}>
-      <h2>Connect Your Facebook Page & Instagram</h2>
-
-      {/* TUTORIAL MODAL — ONLY SHOWS FIRST TIME */}
-      {!hasSeenTutorial && (
+    <div style={{ padding: 16 }}>
+      {/* TUTORIAL MODAL */}
+      {showTutorial && (
         <div
           style={{
             position: "fixed",
@@ -131,34 +195,49 @@ function LogMedia() {
               borderRadius: 12,
               maxWidth: 600,
               textAlign: "center",
+              position: "relative",
             }}
           >
+            <button
+              onClick={closeTutorial}
+              style={{
+                position: "absolute",
+                top: 10,
+                right: 10,
+                background: "transparent",
+                border: "none",
+                fontSize: 24,
+                cursor: "pointer",
+              }}
+            >
+              ×
+            </button>
             <h2>Quick Guide: How to Connect (30 sec)</h2>
-            {/* Meta’s Official Tutorial (they LOVE this in review)
-https://www.youtube.com/watch?v=Zp6J5wzb2Zc
-(embed ID: Zp6J5wzb2Zc) */}
-
-{/* Short & Sweet (25 seconds)
-https://www.youtube.com/watch?v=9t6m1d0fX8k
-(embed ID: 9t6m1d0fX8k) */}
-
             <iframe
-                 width="100%"
-               height="315"
-               src="https://www.youtube.com/embed/Zp6J5wzb2Zc"   // ← THIS ONE IS BEST
+              width="100%"
+              height="315"
+              src="https://www.youtube.com/embed/Zp6J5wzb2Zc"
               title="How to connect Facebook Page & Instagram"
               frameBorder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-             allowFullScreen
-          ></iframe>
+              allowFullScreen
+            ></iframe>
             <p style={{ margin: "20px 0", fontSize: 16 }}>
               You need: <br />
               • A Facebook Page (not profile) <br />
               • That Page connected to an Instagram Professional/Business account
             </p>
             <button
-              onClick={() => setHasSeenTutorial(true)}
-              style={{ padding: "12px 24px", fontSize: 18, background: "#1877f2", color: "white", border: "none", borderRadius: 8 }}
+              onClick={closeTutorial}
+              style={{
+                padding: "12px 24px",
+                fontSize: 18,
+                background: "#1877f2",
+                color: "white",
+                border: "none",
+                borderRadius: 8,
+                cursor: "pointer",
+              }}
             >
               I Understand → Connect Now
             </button>
@@ -166,27 +245,104 @@ https://www.youtube.com/watch?v=9t6m1d0fX8k
         </div>
       )}
 
-      <button
-        onClick={handleFBLogin}
-        style={{
-          padding: "14px 32px",
-          fontSize: 18,
-          background: "#1877f2",
-          color: "white",
-          border: "none",
-          borderRadius: 8,
-          cursor: "pointer",
-        }}
-      >
-        Login with Facebook
-      </button>
+      {/* USER PROFILE SECTION */}
+      {userProfile ? (
+        <div style={{ marginBottom: 30, padding: 20, background: "#f0f2f5", borderRadius: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <h3 style={{ margin: 0, marginBottom: 5 }}>👤 {userProfile.username}</h3>
+              <p style={{ margin: 0, color: "#666" }}>Role: {userProfile.role}</p>
+            </div>
+            <button
+              onClick={handleLogout}
+              style={{
+                padding: "8px 16px",
+                background: "#f44336",
+                color: "white",
+                border: "none",
+                borderRadius: 6,
+                cursor: "pointer",
+              }}
+            >
+              Logout
+            </button>
+          </div>
 
-      {userData && (
-        <div style={{ marginTop: 20, padding: 16, background: "#f0f2f5", borderRadius: 8 }}>
-          <strong>Connected Page:</strong> {userData.pageName} <br />
-          <strong>Instagram Ready:</strong> Yes
+          {/* Connected Pages */}
+          {connectedPages.length > 0 && (
+            <div style={{ marginTop: 15, paddingTop: 15, borderTop: "1px solid #ddd" }}>
+              <strong>Connected Pages:</strong>
+              {connectedPages.map((page, idx) => (
+                <div key={idx} style={{ marginTop: 8, padding: 10, background: "white", borderRadius: 6 }}>
+                  <div>📄 {page.pageName}</div>
+                  {page.instagramBusinessId && (
+                    <div style={{ fontSize: 12, color: "#666" }}>
+                      📷 Instagram: Connected
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ textAlign: "center", marginBottom: 30 }}>
+          <h2>Connect Your Facebook Page & Instagram</h2>
+          <p style={{ color: "#666" }}>Login to start posting to your social media</p>
         </div>
       )}
+
+      {/* ACTION BUTTONS */}
+      <div style={{ textAlign: "center" }}>
+        {!userProfile ? (
+          <button
+            onClick={handleFBLogin}
+            style={{
+              padding: "14px 32px",
+              fontSize: 18,
+              background: "#1877f2",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              cursor: "pointer",
+            }}
+          >
+            Login with Facebook
+          </button>
+        ) : (
+          <button
+            onClick={handleFBLogin}
+            style={{
+              padding: "14px 32px",
+              fontSize: 18,
+              background: "#42b72a",
+              color: "white",
+              border: "none",
+              borderRadius: 8,
+              cursor: "pointer",
+            }}
+          >
+            Reconnect / Add More Pages
+          </button>
+        )}
+
+        {/* Tutorial Button */}
+        <button
+          onClick={openTutorial}
+          style={{
+            marginLeft: 10,
+            padding: "14px 32px",
+            fontSize: 18,
+            background: "#fff",
+            color: "#1877f2",
+            border: "2px solid #1877f2",
+            borderRadius: 8,
+            cursor: "pointer",
+          }}
+        >
+          📹 View Tutorial
+        </button>
+      </div>
     </div>
   );
 }

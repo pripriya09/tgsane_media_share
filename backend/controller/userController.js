@@ -4,61 +4,46 @@ import fetch from "node-fetch";
 import { v2 as cloudinary } from "cloudinary";
 import streamifier from "streamifier";
 import axios from "axios"
+// import Post from "../models/Post.js"
 const FB_API_VERSION = "v24.0";
 
 export async function connectFacebook(req, res) {
   try {
     const { userAccessToken, userId } = req.body;
-    if (!userAccessToken || !userId) return res.status(400).json({ error: "Missing userAccessToken or userId" });
+    if (!userAccessToken || !userId) return res.status(400).json({ error: "Missing token or userId" });
 
-    const pagesUrl = `https://graph.facebook.com/${FB_API_VERSION}/me/accounts?access_token=${userAccessToken}`;
+    const pagesUrl = `https://graph.facebook.com/${FB_API_VERSION}/me/accounts?access_token=${userAccessToken}&fields=name,access_token,instagram_business_account`;
     const pagesResp = await fetch(pagesUrl);
     const pagesJson = await pagesResp.json();
-    if (pagesJson.error) {
-      console.error("FB /me/accounts error", pagesJson.error);
-      return res.status(500).json({ error: pagesJson.error });
-    }
 
-    const pages = pagesJson.data || [];
+    if (pagesJson.error) return res.status(500).json({ error: pagesJson.error });
+
     const enrichedPages = [];
-
-    for (const p of pages) {
-      const pageId = p.id;
-      const pageName = p.name || "";
-      const pageAccessToken = p.access_token;
+    for (const p of pagesJson.data || []) {
       let instagramBusinessId = null;
-
-      if (pageAccessToken) {
-        try {
-          const igUrl = `https://graph.facebook.com/${FB_API_VERSION}/${pageId}?fields=instagram_business_account&access_token=${pageAccessToken}`;
-          const igResp = await fetch(igUrl);
-          const igJson = await igResp.json();
-          if (!igJson.error && igJson.instagram_business_account?.id) {
-            instagramBusinessId = igJson.instagram_business_account.id;
-          }
-        } catch (err) {
-          console.warn("IG check failed for page", pageId, err.message);
-        }
+      if (p.instagram_business_account?.id) {
+        instagramBusinessId = p.instagram_business_account.id;
       }
 
       enrichedPages.push({
-        pageId,
-        pageName,
-        pageAccessToken,
+        pageId: p.id,
+        pageName: p.name || "Unnamed Page",
+        pageAccessToken: p.access_token,
         instagramBusinessId,
       });
     }
 
-    const user = await User.findById(userId);
+    // SAVE TO USER IN DB
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: { pages: enrichedPages } },
+      { new: true }
+    );
+
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    user.pages = enrichedPages;  // This is where we save
-    await user.save();
-    console.log("Saved pages to user:", user.pages.map(p => ({ 
-      pageId: p.pageId, 
-      type: typeof p.pageId 
-    })));
-    // Return safe version (no token exposed)
+    console.log(`Saved ${enrichedPages.length} pages for user ${userId}`);
+
     const safePages = enrichedPages.map(p => ({
       pageId: p.pageId,
       pageName: p.pageName,
@@ -67,11 +52,10 @@ export async function connectFacebook(req, res) {
 
     return res.json({ success: true, pages: safePages });
   } catch (err) {
-    console.error("connectFacebook error", err);
+    console.error("connectFacebook error:", err);
     return res.status(500).json({ error: err.message });
   }
 }
-
 // FINAL WORKING VERSION — getConnectedPages
 export async function getConnectedPages(req, res) {
   try {
@@ -147,10 +131,11 @@ export async function postToChannels(req, res) {
     const {
       userId,
       pageId,
-      title,
+      title = "",
       image,
       videoUrl,
-      type = "image",
+      type = "image",           // "image" | "video" | "carousel"
+      items,                    // For carousel: array of { type: "image"|"video", url: "https://..." }
       postToFB = true,
       postToIG = true
     } = req.body;
@@ -166,9 +151,78 @@ export async function postToChannels(req, res) {
     const results = { fb: null, ig: null };
     const { pageAccessToken, instagramBusinessId } = page;
 
+    // Helper: retry publish (handles socket hang-ups)
+    const publishWithRetry = async (creationId, maxRetries = 3) => {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const resp = await fetch(
+            `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId || pageId}/media_publish`,
+            {
+              method: "POST",
+              body: new URLSearchParams({
+                creation_id: creationId,
+                access_token: pageAccessToken
+              }),
+              signal: AbortSignal.timeout(30000)
+            }
+          );
+          return await resp.json();
+        } catch (err) {
+          if (attempt === maxRetries) throw err;
+          await new Promise(r => setTimeout(r, 2000 * attempt));
+        }
+      }
+    };
+
     // ==================== FACEBOOK POST ====================
     if (postToFB && pageAccessToken) {
-      if (type === "image") {
+      if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.length <= 10) {
+        const attached_media = [];
+        for (const item of items) {
+          if (item.type === "image") {
+            const photoRes = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/photos`, {
+              method: "POST",
+              body: new URLSearchParams({
+                url: item.url,
+                access_token: pageAccessToken,
+                published: "false"   // Important: don't publish yet
+              })
+            });
+            const photoJson = await photoRes.json();
+            if (photoJson.id) {
+              attached_media.push({ media_fbid: photoJson.id });
+            }
+          } 
+          else if (item.type === "video") {
+            const videoRes = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/videos`, {
+              method: "POST",
+              body: new URLSearchParams({
+                file_url: item.url,
+                access_token: pageAccessToken,
+                published: "false"
+              })
+            });
+            const videoJson = await videoRes.json();
+            if (videoJson.id) {
+              attached_media.push({ media_fbid: videoJson.id });
+            }
+          }
+        }
+
+        const fbResp = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/feed`, {
+          method: "POST",
+          body: new URLSearchParams({
+            message: title || "Check out my carousel!",
+            attached_media: JSON.stringify(attached_media),
+            access_token: pageAccessToken
+          })
+        });
+        const fbJson = await fbResp.json();
+        results.fb = fbJson.error ? { error: fbJson.error } : fbJson;
+      }
+
+      
+      else if (type === "image") {
         const resp = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/photos`, {
           method: "POST",
           body: new URLSearchParams({
@@ -207,33 +261,79 @@ export async function postToChannels(req, res) {
     // ==================== INSTAGRAM POST ====================
     if (postToIG && instagramBusinessId && pageAccessToken) {
 
-      // Helper: Retry publish with socket hang up handling
-      const publishWithRetry = async (creationId, maxRetries = 3) => {
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            const publishResp = await fetch(
-              `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}/media_publish`,
-              {
-                method: "POST",
-                body: new URLSearchParams({
-                  creation_id: creationId,
-                  access_token: pageAccessToken
-                }),
-                signal: AbortSignal.timeout(30000) // 30s timeout to avoid hang up
-              }
-            );
-            const publishJson = await publishResp.json();
-            return publishJson;
-          } catch (err) {
-            if (attempt === maxRetries) throw err;
-            console.warn(`Publish retry ${attempt}/${maxRetries} (socket hang up):`, err.message);
-            await new Promise(r => setTimeout(r, 2000 * attempt)); // Exponential backoff
-          }
-        }
-      };
+      // CAROUSEL POST (IG)
+     // INSTAGRAM CAROUSEL — FINAL WORKING VERSION (DEC 2025)
+if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.length <= 10) {
+  try {
+    const childIds = [];
+    for (const item of items) {
+      const isVideo = item.resource_type === "video" || item.type === "video";
+      const payload = new URLSearchParams({
+        caption: title || "",
+        is_carousel_item: "true",
+        access_token: pageAccessToken,
+      });
+  
+      if (isVideo) {
+        payload.append("media_type", "REELS");
+        payload.append("video_url", item.url);
+        payload.append("share_to_feed", "true");
+      } else {
+        payload.append("image_url", item.url);
+      }
+  
+      const resp = await fetch(
+        `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}/media`,
+        { method: "POST", body: payload }
+      );
+      const json = await resp.json();
+  
+      if (json.error) {
+        console.error("Child container failed:", json.error);
+        throw new Error(`Child failed: ${json.error.message}`);
+      }
+      childIds.push(json.id);
+    }
+  
+    console.log("Child IDs:", childIds);
+  
+    // Create parent carousel
+    const carouselPayload = new URLSearchParams({
+      media_type: "CAROUSEL",
+      caption: title || "Amazing carousel!",
+      children: childIds.join(","),
+      access_token: pageAccessToken,
+    });
+  
+    const carouselResp = await fetch(
+      `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}/media`,
+      { method: "POST", body: carouselPayload }
+    );
+    const carouselJson = await carouselResp.json();
+  
+    if (carouselJson.error) throw carouselJson.error;
+  
+    // Poll status
+    const poll = await pollIgCreationStatus(carouselJson.id, pageAccessToken);
+    if (!poll.ok) throw poll.error;
+  
+    // Publish
+    const publishJson = await publishWithRetry(carouselJson.id);
+    results.ig = publishJson.error
+      ? { error: publishJson.error }
+      : { id: publishJson.id, type: "carousel" };
+  
+    // IMPORTANT: no return here, let it continue to DB save
+  
+  } catch (err) {
+    console.error("Carousel error:", err);
+    results.ig = { error: err.message || "Carousel failed" };
+    // IMPORTANT: no return here either
+  }
+}
 
       // IMAGE POST
-      if (type === "image") {
+     else if (type === "image") {
         const createResp = await fetch(
           `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}/media`,
           {
@@ -252,7 +352,9 @@ export async function postToChannels(req, res) {
         } else {
           const publishJson = await publishWithRetry(createJson.id);
           results.ig = publishJson.error ? { error: publishJson.error } : { id: publishJson.id || createJson.id };
+          
         }
+        
       }
 
       // VIDEO POST (REELS)
@@ -303,6 +405,25 @@ export async function postToChannels(req, res) {
         }
       }
     }
+
+    const Post = (await import("../models/Post.js")).default;
+
+    const postData = {
+      userId,
+      pageId,
+      title,
+      type,
+      image: type === "image" ? image : null,
+      videoUrl: type === "video" ? videoUrl : null,
+      items: type === "carousel" ? items : null,  // ← Now saved correctly!
+      fbPostId: results.fb?.id || results.fb?.post_id || null,
+      igMediaId: results.ig?.id || null,
+      postedAt: new Date()
+    };
+
+    const savedPost = await Post.create(postData);
+    console.log("FINAL POST SAVED TO DB:", savedPost._id, "Type:", type, "Items:", savedPost.items?.length || 0);
+
 
     return res.json({ success: true, results });
 

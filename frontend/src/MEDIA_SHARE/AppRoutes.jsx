@@ -5,6 +5,7 @@ import AutoPostApp from './AutoPostApp';
 import Home from './Home';
 import LogMedia from './LogMedia';
 import CreatePost from './CreatePost';
+import PostsHistory from './PostsHistory'; // ← NEW IMPORT
 
 function AppRoutes() {
   return (
@@ -12,9 +13,10 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<AutoPostApp />} />
         <Route path="/home" element={<Home />}>
-          <Route index element={<LogMedia />} />        {/* Default: Connect FB */}
+          <Route index element={<LogMedia />} />
           <Route path="connect" element={<LogMedia />} />
           <Route path="create" element={<CreatePost />} />
+          <Route path="history" element={<PostsHistory />} /> {/* ← NEW ROUTE */}
         </Route>
       </Routes>
     </BrowserRouter>

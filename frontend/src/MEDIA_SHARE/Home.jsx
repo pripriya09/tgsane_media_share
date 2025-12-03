@@ -1,14 +1,19 @@
 // Home.jsx
 import React from 'react';
+import { Outlet } from 'react-router-dom';
 import Dashboard from './Dashboard';
-import Display from './Display';
 import './autopost.css';
 
 function Home() {
   return (
-    <div className="contain">
-      <div className="dashboard"><Dashboard /></div>
-      <div className="display"><Display /></div>
+    <div style={{ display: "flex", minHeight: "100vh" }}>
+      {/* Sidebar Navigation */}
+      <Dashboard />
+      
+      {/* Main Content Area */}
+      <div style={{ flex: 1, padding: "20px", backgroundColor: "#fafafa" }}>
+        <Outlet />
+      </div>
     </div>
   );
 }

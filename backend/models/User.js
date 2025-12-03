@@ -1,4 +1,3 @@
-// models/User.js  ← THIS MUST BE EXACTLY LIKE THIS
 import mongoose from "mongoose";
 
 const UserSchema = new mongoose.Schema({
@@ -6,10 +5,10 @@ const UserSchema = new mongoose.Schema({
   username: { type: String, unique: true },
   email: { type: String, unique: true, sparse: true },
   passwordHash: String,
+  facebookId: { type: String, unique: true, sparse: true }, // ← ADD THIS
   role: { type: String, enum: ["superAdmin", "admin", "agent", "user"], default: "user" },
   createdAt: { type: Date, default: Date.now },
-
-  // THIS WAS MISSING — NOW ADDED
+  
   pages: [{
     pageId: String,
     pageName: String,
@@ -18,6 +17,5 @@ const UserSchema = new mongoose.Schema({
   }],
 });
 
-// THIS LINE MUST BE "export default mongoose.model..."
 const User = mongoose.model("User", UserSchema);
-export default User;   // ← THIS IS CORRECT
+export default User;

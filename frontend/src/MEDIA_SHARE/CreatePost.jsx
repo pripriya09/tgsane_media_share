@@ -1,20 +1,22 @@
 import React, { useEffect, useState } from "react";
-import api from "./api"; // adjust path if your api file lives elsewhere
+import api from "./api";
 
 function CreatePost() {
+  const [activeTab, setActiveTab] = useState("single"); // "single" | "carousel"
   const [contentData, setContentData] = useState([]);
   const [title, setTitle] = useState("");
-  const [imageFile, setImageFile] = useState(null);
+  const [files, setFiles] = useState([]);
+  const [singleFile, setSingleFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [pages, setPages] = useState([]);
   const [selectedPage, setSelectedPage] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [postToFB, setPostToFB] = useState(true);
+  const [postToIG, setPostToIG] = useState(true);
 
-  // Helper to build full image URLs if backend returns relative paths
   const buildImageUrl = (img) => {
     if (!img) return "";
     if (img.startsWith("http://") || img.startsWith("https://")) return img;
-    // If VITE_API_URL points to your backend, use it as prefix; else return as-is
     const base = import.meta.env.VITE_API_URL || "";
     return base ? `${base.replace(/\/$/, "")}/${img.replace(/^\/+/, "")}` : img;
   };
@@ -22,49 +24,36 @@ function CreatePost() {
   useEffect(() => {
     fetchContent();
     loadPagesForUser();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-// try to initialize pages from localStorage if empty (race condition fix)
-useEffect(() => {
-  try {
-    const stored = JSON.parse(localStorage.getItem("ms_pages") || "null");
-    if (Array.isArray(stored) && stored.length) {
-      console.debug("Initializing pages from localStorage ms_pages:", stored);
-      setPages(stored);
-      const firstId = stored[0].pageId || stored[0].id;
-      if (firstId) setSelectedPage(firstId);
-      return;
-    }
-  } catch (err) {
-    // ignore parse errors
-  }
-  // otherwise fallback to fetching from backend
-  loadPagesForUser();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, []);
-
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("ms_pages") || "null");
+      if (Array.isArray(stored) && stored.length) {
+        setPages(stored);
+        const firstId = stored[0].pageId || stored[0].id;
+        if (firstId) setSelectedPage(firstId);
+        return;
+      }
+    } catch (err) {}
+    loadPagesForUser();
+  }, []);
 
   useEffect(() => {
     function onPagesUpdated(e) {
       const pagesFromEvent = e?.detail?.pages;
       if (Array.isArray(pagesFromEvent) && pagesFromEvent.length) {
-        console.debug("pagesUpdated event received, using event pages:", pagesFromEvent);
         setPages(pagesFromEvent);
         const firstId = pagesFromEvent[0].pageId || pagesFromEvent[0].id;
         setSelectedPage(firstId || "");
         return;
       }
-      // fallback: reload from backend
-      console.debug("pagesUpdated event but no pages in event; reloading from backend");
       loadPagesForUser();
     }
-  
     window.addEventListener("pagesUpdated", onPagesUpdated);
     return () => window.removeEventListener("pagesUpdated", onPagesUpdated);
   }, []);
-  
-  // Improved loadPagesForUser
+
   async function loadPagesForUser() {
     try {
       setErrorMsg("");
@@ -76,20 +65,17 @@ useEffect(() => {
         return;
       }
 
-      const res = await api.get("/user/pages");  // ← MUST BE THIS
-    const pagesList = res.data?.pages || [];
-    console.log("Loaded pages from /user/pages:", pagesList);
-    
-    setPages(pagesList);
-    if (pagesList.length > 0) {
-      setSelectedPage(pagesList[0].pageId);
+      const res = await api.get("/user/pages");
+      const pagesList = res.data?.pages || [];
+      setPages(pagesList);
+      if (pagesList.length > 0) {
+        setSelectedPage(pagesList[0].pageId);
+      }
+    } catch (err) {
+      console.error("Failed to load pages:", err.response?.data || err);
+      setErrorMsg("Failed to load pages. Reconnect Facebook.");
     }
-  } catch (err) {
-    console.error("Failed to load pages:", err.response?.data || err);
-    setErrorMsg("Failed to load pages. Reconnect Facebook.");
   }
-  }
-
 
   async function fetchContent() {
     try {
@@ -99,261 +85,369 @@ useEffect(() => {
       setContentData(arr);
     } catch (err) {
       console.error("Error fetching content:", err);
-      setErrorMsg(buildErrorMessage(err, "fetching content"));
+      setErrorMsg("Error fetching content: " + (err.response?.data?.error || err.message));
       setContentData([]);
     }
   }
 
-  // async function loadPagesForUser() {
-  //   try {
-  //     setErrorMsg("");
-  //     const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
-  //     if (!user || !user._id) {
-  //       console.warn("No local ms_user found; skipping pages load.");
-  //       setPages([]);
-  //       return;
-  //     }
-  //     const res = await api.get(`/user/pages/${user._id}`);
-  //     const pagesList = res.data?.pages || res.data || [];
-  //     setPages(pagesList);
-  //     if (pagesList.length) {
-  //       // auto-select the first page (so UI doesn't require the select)
-  //       const firstId = pagesList[0].pageId || pagesList[0].id || pagesList[0].pageId;
-  //       setSelectedPage(firstId || "");
-  //     } else {
-  //       setSelectedPage("");
-  //     }
-  //   } catch (err) {
-  //     console.warn("Could not load pages:", err);
-  //     setErrorMsg(buildErrorMessage(err, "loading pages"));
-  //     setPages([]);
-  //   }
-  // }
-
-  // Utility to show helpful error strings
-  function buildErrorMessage(err, when = "") {
-    if (!err) return when ? `Error ${when}` : "Unknown error";
-    if (err.response) {
-      return `${when ? when + ": " : ""}HTTP ${err.response.status} — ${JSON.stringify(err.response.data)}`;
-    }
-    return `${when ? when + ": " : ""}${err.message || String(err)}`;
-  }
-  async function handleUpload(e) {
-    e.preventDefault();
-    if (!imageFile) {
-      alert("Please choose an image OR video to upload.");
-      return;
-    }
-  
-    setLoading(true);
-    try {
-      setErrorMsg("");
-      const fd = new FormData();
-      fd.append("title", title || "");
-      // Use single generic field name "file" (server should accept upload.single("file") or upload.any())
-      fd.append("file", imageFile);
-  
-      const isVideo = imageFile.type.startsWith("video/");
-      fd.append("type", isVideo ? "video" : "image");
-  
-      const res = await api.post("/upload", fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-  
-      const uploaded = res.data;
-      if (!uploaded) {
-        await fetchContent();
+  const handleFileChange = (e) => {
+    const selected = Array.from(e.target.files);
+    if (activeTab === "carousel") {
+      if (selected.length + files.length > 10) {
+        alert("Maximum 10 items allowed in carousel");
         return;
       }
-  
-      const returnedUrl = uploaded.url || uploaded.image || uploaded.videoUrl || "";
-      const item = {
-        ...uploaded,
-        title: uploaded.title || title,
-        type: isVideo ? "video" : "image",
-        image: isVideo ? null : returnedUrl,
-        videoUrl: isVideo ? returnedUrl : null,
-      };
-  
-      setContentData(prev => [item, ...prev]);
+      setFiles(prev => [...prev, ...selected]);
+    } else {
+      setSingleFile(selected[0] || null);
+    }
+  };
+
+  const removeFile = (index) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // ONLY UPLOAD - Don't post yet
+  const handleUpload = async (e) => {
+    e.preventDefault();
+    const fileList = activeTab === "carousel" ? files : [singleFile];
+    if (fileList.length === 0 || (activeTab === "carousel" && fileList.length < 2)) {
+      alert(activeTab === "carousel" ? "Select 2–10 files" : "Select a file");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fileList.forEach(file => fd.append("file", file));
+
+      const res = await api.post("/upload", fd);
+      const results = Array.isArray(res.data) ? res.data : [res.data];
+
+      // Build uploaded items with title
+      const uploaded = results.map(r => ({
+        title: title || "",
+        type: r.resourcetype === "video" ? "video" : "image",
+        image: r.resourcetype !== "video" ? r.url : null,
+        videoUrl: r.resourcetype === "video" ? r.url : null,
+        url: r.url,
+        resourcetype: r.resourcetype
+      }));
+
+      // For carousel, save all items as one entry
+      if (activeTab === "carousel") {
+        setContentData(prev => [
+          {
+            title: title || "Carousel",
+            type: "carousel",
+            items: uploaded.map(u => ({ type: u.type, url: u.url }))
+          },
+          ...prev
+        ]);
+      } else {
+        setContentData(prev => [uploaded[0], ...prev]);
+      }
+
+      alert("✅ Upload successful! Now click 'Post' button to publish.");
+
+      // Reset form
+      setFiles([]);
+      setSingleFile(null);
       setTitle("");
-      setImageFile(null);
-  
     } catch (err) {
-      console.error("Upload failed:", err);
-      setErrorMsg(buildErrorMessage(err, "uploading file"));
-      alert("Upload failed: " + (err.response?.data?.error || err.message));
+      setErrorMsg("Upload failed: " + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
     }
-  }
-  
-  // Post to backend to publish to FB/IG
-  async function handlePost(cont, options = { postToFB: true, postToIG: true, pageId: null }) {
+  };
+
+  // POST - Publish to FB/IG based on selected item
+  async function handlePost(cont) {
     try {
       setErrorMsg("");
       const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
-      if (!user || !user._id) {
+      if (!user?._id) {
         alert("You must be logged in to post. Please login.");
         return;
       }
-  
-      // const pageId = options.pageId || selectedPage || cont.pageId || (pages[0] && (pages[0].pageId || pages[0].id));
-      // console.debug("Attempting post, resolved pageId:", pageId, "selectedPage:", selectedPage, "cont.pageId:", cont.pageId, "pages:", pages)
 
-
-      const resolvedPageId = (() => {
-        // 1) explicit passed option
-        if (options.pageId) return options.pageId;
-        // 2) selected state in UI
-        if (selectedPage) return selectedPage;
-        // 3) the content item may already include a pageId
-        if (cont?.pageId) return cont.pageId;
-        // 4) pages state (first)
-        if (pages && pages.length) return pages[0].pageId || pages[0].id;
-        // 5) fallback: try localStorage stored pages
-        try {
-          const stored = JSON.parse(localStorage.getItem("ms_pages") || "null");
-          if (Array.isArray(stored) && stored.length) return stored[0].pageId || stored[0].id;
-        } catch (err) {}
-        return null;
-      })();
-      console.debug("Resolved pageId for posting:", resolvedPageId);
+      const resolvedPageId = selectedPage || pages[0]?.pageId || pages[0]?.id;
       if (!resolvedPageId) {
-        alert("No Page available. Connect Facebook first (LogMedia).");
+        alert("No Page available. Connect Facebook first.");
         return;
       }
 
-      // use appropriate url validation depending on content type
-if (cont.type === "video") {
-  const url = cont.videoUrl || cont.image || "";
-  if (!url || !url.startsWith("https://")) {
-    alert("Video must be a public HTTPS URL (Cloudinary or CDN). Please upload or re-upload the video.");
-    return;
-  }
-} else {
-  const url = cont.image || "";
-  if (!url || !url.startsWith("https://")) {
-    alert("Image must be a public HTTPS URL (Cloudinary or CDN). Please upload or re-upload the image.");
-    return;
-  }
-}
+      // Validate at least one checkbox is selected
+      if (!postToFB && !postToIG) {
+        alert("Please select at least Facebook or Instagram to post.");
+        return;
+      }
+
+      // Handle carousel
+      if (cont.type === "carousel") {
+        const res = await api.post("/user/post", {
+          userId: user._id,
+          pageId: resolvedPageId,
+          title: cont.title || "",
+          type: "carousel",
+          items: cont.items,
+          postToFB,
+          postToIG
+        });
+
+        if (res.data.success) {
+          alert(`✅ Carousel posted!\nFacebook: ${postToFB ? "Yes" : "No"}\nInstagram: ${postToIG ? "Yes" : "No"}`);
+          fetchContent();
+        } else {
+          alert("Error: " + JSON.stringify(res.data));
+        }
+        return;
+      }
+
+      // Handle single post (image/video)
+      const url = cont.type === "video" ? (cont.videoUrl || cont.image) : cont.image;
+      if (!url || !url.startsWith("https://")) {
+        alert("Media must be a public HTTPS URL. Please re-upload.");
+        return;
+      }
 
       const body = {
         userId: user._id,
         pageId: resolvedPageId,
-        title: cont.title,
-        type: cont.type || "image",                 // "image" or "video"
+        title: cont.title || "",
+        type: cont.type || "image",
         image: cont.type === "image" ? cont.image : null,
         videoUrl: cont.type === "video" ? (cont.videoUrl || cont.image) : null,
-        postToFB: !!options.postToFB,
-        postToIG: !!options.postToIG,
+        postToFB,
+        postToIG,
       };
-      
-  
-      console.debug("POST /user/post body:", body);
+
       const res = await api.post("/user/post", body);
-      alert("Posted: " + (res.data?.message || JSON.stringify(res.data)));
+      
+      if (res.data.success) {
+        alert(`✅ Posted successfully!\nFacebook: ${postToFB ? "Yes" : "No"}\nInstagram: ${postToIG ? "Yes" : "No"}`);
+        fetchContent();
+      } else {
+        alert("Error: " + JSON.stringify(res.data));
+      }
     } catch (err) {
       console.error("Post failed:", err);
-      setErrorMsg(buildErrorMessage(err, "posting"));
       alert("Post failed: " + (err.response?.data?.error || err.message));
     }
   }
-  
+
   return (
     <div className="share-container" style={{ padding: 16, maxWidth: 1100, margin: "0 auto" }}>
-      <h2>Create / Upload</h2>
+      <h2>Create Post</h2>
 
-      {errorMsg && (
-        <div style={{ background: "#ffe6e6", color: "#900", padding: 8, marginBottom: 12, borderRadius: 6 }}>
-          <strong>Error:</strong> {errorMsg}
-        </div>
-      )}
+      {/* Tab Selection */}
+      <div style={{ marginBottom: 16 }}>
+        <button 
+          onClick={() => setActiveTab("single")} 
+          style={{ 
+            padding: "8px 16px",
+            fontWeight: activeTab === "single" ? "bold" : "normal",
+            background: activeTab === "single" ? "#1976d2" : "#fff",
+            color: activeTab === "single" ? "#fff" : "#000",
+            border: "1px solid #ddd",
+            borderRadius: "4px",
+            cursor: "pointer"
+          }}
+        >
+          Single Post
+        </button>
+        <button 
+          onClick={() => setActiveTab("carousel")} 
+          style={{ 
+            marginLeft: 8,
+            padding: "8px 16px",
+            fontWeight: activeTab === "carousel" ? "bold" : "normal",
+            background: activeTab === "carousel" ? "#1976d2" : "#fff",
+            color: activeTab === "carousel" ? "#fff" : "#000",
+            border: "1px solid #ddd",
+            borderRadius: "4px",
+            cursor: "pointer"
+          }}
+        >
+          Carousel (2–10 items)
+        </button>
+      </div>
 
-      <form onSubmit={handleUpload} style={{ marginBottom: 16 }}>
+      {/* Checkboxes: Where to post? */}
+      <div style={{ marginBottom: 16, padding: 12, background: "#f0f8ff", borderRadius: 8 }}>
+        <strong>Post to:</strong>
+        <label style={{ marginLeft: 16, cursor: "pointer" }}>
+          <input 
+            type="checkbox" 
+            checked={postToFB} 
+            onChange={e => setPostToFB(e.target.checked)} 
+            style={{ marginRight: 6 }}
+          />
+          Facebook
+        </label>
+        <label style={{ marginLeft: 16, cursor: "pointer" }}>
+          <input 
+            type="checkbox" 
+            checked={postToIG} 
+            onChange={e => setPostToIG(e.target.checked)} 
+            style={{ marginRight: 6 }}
+          />
+          Instagram
+        </label>
+      </div>
+
+      {errorMsg && <div style={{ color: "red", marginBottom: 12, padding: 12, background: "#fee", borderRadius: 6 }}>{errorMsg}</div>}
+
+      {/* Upload Form */}
+      <form onSubmit={handleUpload} style={{ marginBottom: 30, padding: 20, background: "#f9f9f9", borderRadius: 8 }}>
         <input
           type="text"
-          placeholder="Enter your title (optional)"
+          placeholder="Caption (optional)"
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          style={{ width: "100%", padding: 8, marginBottom: 8 }}
+          onChange={e => setTitle(e.target.value)}
+          style={{ width: "100%", padding: 10, marginBottom: 12, border: "1px solid #ddd", borderRadius: 4 }}
         />
-    <input
-  type="file"
-  accept="image/*,video/*"
-  onChange={(e) => setImageFile(e.target.files[0])}
-/>
 
-        <div style={{ marginTop: 8, marginBottom: 8 }}>
-          {/* If you want to hide the select and always use the first available page, comment out the select element */}
-          {pages.length > 1 ? (
-            <>
-              <label style={{ marginRight: 8 }}>Select Page:</label>
-              <select value={selectedPage} onChange={(e) => setSelectedPage(e.target.value)}>
-                <option value="">-- choose page --</option>
-                {pages.map((p, idx) => (
-                  <option key={p.pageId || p.id || idx} value={p.pageId || p.id}>
-                    {p.pageName || p.name || p.pageName || p.id}
-                  </option>
-                ))}
-              </select>
-            </>
-          ) : (
-            <div style={{ color: "#666", fontSize: 13 }}>
-              {pages.length === 1
-                ? `Posting will use page: ${pages[0].pageName || pages[0].name || pages[0].id}`
-                : "No connected pages found. Connect Facebook (LogMedia) first."}
-            </div>
-          )}
-        </div>
+        <input
+          type="file"
+          accept="image/*,video/*"
+          multiple={activeTab === "carousel"}
+          onChange={handleFileChange}
+          style={{ marginBottom: 12 }}
+        />
 
-        <button type="submit" disabled={loading} style={{ padding: "8px 12px" }}>
-          {loading ? "Uploading..." : "Upload"}
+        {activeTab === "carousel" && files.length > 0 && (
+          <div style={{ marginBottom: 12, padding: 10, background: "#fff", borderRadius: 6 }}>
+            <strong>Selected ({files.length}/10):</strong>
+            {files.map((f, i) => (
+              <div key={i} style={{ marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{f.name} ({f.type.startsWith("video") ? "Video" : "Image"})</span>
+                <button 
+                  type="button" 
+                  onClick={() => removeFile(i)} 
+                  style={{ padding: "4px 8px", background: "#f44336", color: "white", border: "none", borderRadius: 4, cursor: "pointer" }}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activeTab === "single" && singleFile && (
+          <div style={{ marginBottom: 12, padding: 10, background: "#fff", borderRadius: 6 }}>
+            <strong>Selected:</strong> {singleFile.name}
+          </div>
+        )}
+
+        <button 
+          type="submit" 
+          disabled={loading} 
+          style={{ 
+            padding: "12px 24px", 
+            fontSize: 16, 
+            background: loading ? "#ccc" : "#4caf50", 
+            color: "white", 
+            border: "none", 
+            borderRadius: 6, 
+            cursor: loading ? "not-allowed" : "pointer",
+            fontWeight: "600"
+          }}
+        >
+          {loading ? "Uploading..." : activeTab === "carousel" ? "Upload Carousel" : "Upload"}
         </button>
       </form>
 
-      <div style={{ marginTop: 20 }}>
-        <h3>Posts</h3>
+      {/* Uploaded Content - Ready to Post */}
+      <div style={{ marginTop: 30 }}>
+        <h3>Uploaded Content (Click Post to Publish)</h3>
         {contentData.length === 0 ? (
-          <div style={{ color: "#666" }}>No uploaded posts yet.</div>
+          <div style={{ color: "#666", padding: 20, textAlign: "center", background: "#f9f9f9", borderRadius: 8 }}>
+            No uploaded content yet. Upload files above first.
+          </div>
         ) : (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
             {contentData.map((cont, idx) => (
-              <div key={idx} style={{ border: "1px solid #ddd", padding: 8, width: 260, borderRadius: 6 }}>
-                <div style={{ width: "100%", height: 150, overflow: "hidden", borderRadius: 6 }}>
-  {cont.type === "video" ? (
-    <video
-      controls
-      src={buildImageUrl(cont.videoUrl || cont.image)}
-      style={{ width: "100%", height: "100%", objectFit: "cover" }}
-      onError={(e) => { e.currentTarget.src = ""; }}
-    />
-  ) : (
-    <img
-      src={buildImageUrl(cont.image)}
-      alt={cont.title || "image"}
-      style={{ width: "100%", height: "100%", objectFit: "cover" }}
-      onError={(e) => { e.currentTarget.src = ""; }}
-    />
-  )}
-</div>
+              <div key={idx} style={{ border: "1px solid #ddd", padding: 12, width: 280, borderRadius: 8, background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>
+                {/* Preview */}
+                {cont.type === "carousel" ? (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ 
+                      padding: "4px 8px", 
+                      background: "#e3f2fd", 
+                      borderRadius: 4, 
+                      display: "inline-block", 
+                      fontSize: 12, 
+                      fontWeight: "600",
+                      marginBottom: 8
+                    }}>
+                      Carousel ({cont.items?.length} items)
+                    </div>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      {cont.items?.slice(0, 4).map((item, i) => (
+                        <img 
+                          key={i} 
+                          src={item.url} 
+                          alt={`item-${i}`}
+                          style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 4 }}
+                        />
+                      ))}
+                      {cont.items?.length > 4 && (
+                        <div style={{ width: 60, height: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f0f0", borderRadius: 4, fontSize: 12 }}>
+                          +{cont.items.length - 4}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ width: "100%", height: 150, overflow: "hidden", borderRadius: 6, marginBottom: 10 }}>
+                    {cont.type === "video" ? (
+                      <video
+                        controls
+                        src={buildImageUrl(cont.videoUrl || cont.image)}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    ) : (
+                      <img
+                        src={buildImageUrl(cont.image)}
+                        alt={cont.title || "image"}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    )}
+                  </div>
+                )}
 
+                <div style={{ marginBottom: 12, minHeight: 40, fontSize: 14 }}>
+                  {cont.title ? (
+                    <strong>{cont.title}</strong>
+                  ) : (
+                    <span style={{ color: "#999" }}>(no caption)</span>
+                  )}
+                </div>
 
+                {/* Single POST Button */}
+                <button 
+                  onClick={() => handlePost(cont)}
+                  style={{
+                    width: "100%",
+                    padding: "10px",
+                    background: "#1976d2",
+                    color: "white",
+                    border: "none",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    fontSize: 15,
+                    fontWeight: "600"
+                  }}
+                  onMouseOver={e => e.target.style.background = "#1565c0"}
+                  onMouseOut={e => e.target.style.background = "#1976d2"}
+                >
+                  📤 Post {postToFB && postToIG ? "(FB + IG)" : postToFB ? "(FB)" : postToIG ? "(IG)" : ""}
+                </button>
 
-
-                <div style={{ marginTop: 8, minHeight: 36 }}>{cont.title || "(no title)"}</div>
-
-                <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-                  <button onClick={() => handlePost(cont, { postToFB: true, postToIG: false })}>
-                    Post to FB
-                  </button>
-                  <button onClick={() => handlePost(cont, { postToFB: false, postToIG: true })}>
-                    Post to IG
-                  </button>
-                  <button onClick={() => handlePost(cont, { postToFB: true, postToIG: true })}>
-                    Post FB+IG
-                  </button>
+                <div style={{ marginTop: 8, fontSize: 11, color: "#666", textAlign: "center" }}>
+                  Will post to: {postToFB ? "Facebook " : ""}{postToFB && postToIG ? "+ " : ""}{postToIG ? "Instagram" : ""}
+                  {!postToFB && !postToIG && <span style={{ color: "#f44336" }}>⚠️ Select a platform above</span>}
                 </div>
               </div>
             ))}

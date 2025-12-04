@@ -15,4 +15,4 @@ Files of interest:
 1. Clone the repo
 2. Review CONNECT_GUIDE.md to set up your FB/IG accounts
 3. Follow the OAuth flow in your app to request scopes: `pages_show_list`, `pages_manage_posts`, `instagram_basic`, `instagram_content_publish`
-4. Store App ID / App Secret in a `.env` file (do NOT commit `.env`)
+4. Store App ID / App Secret in a `.env` file (do NOT commit `.env`)fixed git email

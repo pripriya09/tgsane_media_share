@@ -1,26 +1,25 @@
-// src/MEDIA_SHARE/LogMedia.jsx
+// LogMedia.jsx - Fix to check facebookConnected
 import React, { useEffect, useState } from "react";
 import api from "./api";
 
 const FB_APP_ID = (typeof import.meta !== "undefined" && import.meta.env?.VITE_FB_APP_ID) || process.env.REACT_APP_FB_APP_ID;
 
 function LogMedia() {
-  const [userData, setUserData] = useState(null);
-  const [hasSeenTutorial, setHasSeenTutorial] = useState(false);
-  const [showTutorial, setShowTutorial] = useState(false);
-  const [connectedPages, setConnectedPages] = useState([]);
   const [userProfile, setUserProfile] = useState(null);
+  const [connectedPages, setConnectedPages] = useState([]);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [hasSeenTutorial, setHasSeenTutorial] = useState(false);
 
   useEffect(() => {
-    // Check if user has seen tutorial before
+    // Check tutorial
     const seen = localStorage.getItem("ms_tutorial_seen");
     if (seen === "true") {
       setHasSeenTutorial(true);
     } else {
-      setShowTutorial(true); // Show on first visit
+      setShowTutorial(true);
     }
 
-    // Load user profile if logged in
+    // Load user profile
     loadUserProfile();
     loadConnectedPages();
 
@@ -78,62 +77,6 @@ function LogMedia() {
     setShowTutorial(true);
   };
 
-  const handleLogout = () => {
-    if (!window.confirm("Are you sure you want to logout?")) return;
-    
-    localStorage.removeItem("ms_token");
-    localStorage.removeItem("ms_user");
-    localStorage.removeItem("ms_pages");
-    localStorage.removeItem("facebook_userAccessToken");
-    
-    setUserProfile(null);
-    setConnectedPages([]);
-    
-    alert("Logged out successfully");
-    window.location.href = "/"; // Redirect to landing page
-  };
-
-  const loginToAppWithFB = async (userAccessToken) => {
-    try {
-      const res = await api.post("/admin/login-with-facebook", { userAccessToken });
-      const { token, user } = res.data || {};
-      if (token && user) {
-        localStorage.setItem("ms_token", token);
-        localStorage.setItem("ms_user", JSON.stringify(user));
-        setUserProfile(user);
-        console.log("DEBUG: App login via FB success", user);
-      }
-    } catch (err) {
-      console.error("Error logging in to app via FB:", err.response?.data || err.message);
-    }
-  };
-
-  async function connectToBackend(userAccessToken) {
-    try {
-      const ms_user = JSON.parse(localStorage.getItem("ms_user") || "{}");
-      if (!ms_user?._id) {
-        console.warn("connectToBackend: no ms_user in storage");
-        return null;
-      }
-      console.log("Connecting FB to backend for user:", ms_user._id);
-      const res = await api.post("/user/connect/facebook", {
-        userAccessToken,
-        userId: ms_user._id,
-      });
-      console.log("connect/facebook response:", res.data);
-
-      if (res.data?.pages) {
-        localStorage.setItem("ms_pages", JSON.stringify(res.data.pages));
-        setConnectedPages(res.data.pages);
-      }
-
-      return res.data;
-    } catch (err) {
-      console.error("Error connecting FB to backend:", err.response?.data || err.message);
-      return null;
-    }
-  }
-
   const handleFBLogin = () => {
     if (!window.FB) {
       alert("Facebook SDK not loaded");
@@ -148,20 +91,32 @@ function LogMedia() {
 
           (async () => {
             try {
-              await loginToAppWithFB(userAccessToken);
-              const connectResponse = await connectToBackend(userAccessToken);
-              const newPages = connectResponse?.pages || [];
+              // Connect Facebook to existing user account
+              const res = await api.post("/user/connect/facebook", { 
+                userAccessToken,
+                userId: userProfile._id 
+              });
 
-              window.dispatchEvent(new CustomEvent("pagesUpdated", { detail: { pages: newPages } }));
-              alert("Facebook connected successfully!");
-              loadConnectedPages();
+              if (res.data.success) {
+                // Update user profile to show FB connected
+                const updatedUser = { ...userProfile, facebookConnected: true };
+                localStorage.setItem("ms_user", JSON.stringify(updatedUser));
+                setUserProfile(updatedUser);
+
+                // Load pages
+                const pages = res.data.pages || [];
+                localStorage.setItem("ms_pages", JSON.stringify(pages));
+                setConnectedPages(pages);
+
+                alert("✅ Facebook connected successfully!");
+              }
             } catch (err) {
-              console.error("Facebook connect failed:", err);
-              alert("Connection failed: " + (err.response?.data?.error || err.message));
+              const errorMsg = err.response?.data?.error || err.message;
+              alert("Connection failed: " + errorMsg);
             }
           })();
         } else {
-          console.log("User cancelled login or didn't authorize");
+          console.log("User cancelled login");
         }
       },
       {
@@ -174,30 +129,26 @@ function LogMedia() {
     <div style={{ padding: 16 }}>
       {/* TUTORIAL MODAL */}
       {showTutorial && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            background: "rgba(0,0,0,0.8)",
-            zIndex: 9999,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div
-            style={{
-              background: "white",
-              padding: 20,
-              borderRadius: 12,
-              maxWidth: 600,
-              textAlign: "center",
-              position: "relative",
-            }}
-          >
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          background: "rgba(0,0,0,0.8)",
+          zIndex: 9999,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}>
+          <div style={{
+            background: "white",
+            padding: 20,
+            borderRadius: 12,
+            maxWidth: 600,
+            textAlign: "center",
+            position: "relative",
+          }}>
             <button
               onClick={closeTutorial}
               style={{
@@ -212,7 +163,7 @@ function LogMedia() {
             >
               ×
             </button>
-            <h2>Quick Guide: How to Connect (30 sec)</h2>
+            <h2>How to Connect Facebook & Instagram (30 sec)</h2>
             <iframe
               width="100%"
               height="315"
@@ -224,19 +175,20 @@ function LogMedia() {
             ></iframe>
             <p style={{ margin: "20px 0", fontSize: 16 }}>
               You need: <br />
-              • A Facebook Page (not profile) <br />
-              • That Page connected to an Instagram Professional/Business account
+              • A Facebook Page (not personal profile) <br />
+              • Connected to Instagram Professional/Business account
             </p>
             <button
               onClick={closeTutorial}
               style={{
                 padding: "12px 24px",
-                fontSize: 18,
+                fontSize: 16,
                 background: "#1877f2",
                 color: "white",
                 border: "none",
                 borderRadius: 8,
                 cursor: "pointer",
+                fontWeight: 600,
               }}
             >
               I Understand → Connect Now
@@ -248,33 +200,22 @@ function LogMedia() {
       {/* USER PROFILE SECTION */}
       {userProfile ? (
         <div style={{ marginBottom: 30, padding: 20, background: "#f0f2f5", borderRadius: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <h3 style={{ margin: 0, marginBottom: 5 }}>👤 {userProfile.username}</h3>
-              <p style={{ margin: 0, color: "#666" }}>Role: {userProfile.role}</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              style={{
-                padding: "8px 16px",
-                background: "#f44336",
-                color: "white",
-                border: "none",
-                borderRadius: 6,
-                cursor: "pointer",
-              }}
-            >
-              Logout
-            </button>
+          <div>
+            <h3 style={{ margin: 0, marginBottom: 5 }}>
+              👤 {userProfile.username}
+            </h3>
+            <p style={{ margin: 0, color: "#666", fontSize: 12 }}>
+              {userProfile.facebookConnected ? "✅ Facebook Connected" : "❌ Facebook Not Connected"}
+            </p>
           </div>
 
-          {/* Connected Pages */}
-          {connectedPages.length > 0 && (
+          {/* Connected Pages (only show if facebookConnected) */}
+          {userProfile.facebookConnected && connectedPages.length > 0 && (
             <div style={{ marginTop: 15, paddingTop: 15, borderTop: "1px solid #ddd" }}>
-              <strong>Connected Pages:</strong>
+              <strong>📄 Connected Pages:</strong>
               {connectedPages.map((page, idx) => (
                 <div key={idx} style={{ marginTop: 8, padding: 10, background: "white", borderRadius: 6 }}>
-                  <div>📄 {page.pageName}</div>
+                  <div>{page.pageName}</div>
                   {page.instagramBusinessId && (
                     <div style={{ fontSize: 12, color: "#666" }}>
                       📷 Instagram: Connected
@@ -288,56 +229,39 @@ function LogMedia() {
       ) : (
         <div style={{ textAlign: "center", marginBottom: 30 }}>
           <h2>Connect Your Facebook Page & Instagram</h2>
-          <p style={{ color: "#666" }}>Login to start posting to your social media</p>
+          <p style={{ color: "#666" }}>Click below to connect your social media</p>
         </div>
       )}
 
       {/* ACTION BUTTONS */}
-      <div style={{ textAlign: "center" }}>
-        {!userProfile ? (
-          <button
-            onClick={handleFBLogin}
-            style={{
-              padding: "14px 32px",
-              fontSize: 18,
-              background: "#1877f2",
-              color: "white",
-              border: "none",
-              borderRadius: 8,
-              cursor: "pointer",
-            }}
-          >
-            Login with Facebook
-          </button>
-        ) : (
-          <button
-            onClick={handleFBLogin}
-            style={{
-              padding: "14px 32px",
-              fontSize: 18,
-              background: "#42b72a",
-              color: "white",
-              border: "none",
-              borderRadius: 8,
-              cursor: "pointer",
-            }}
-          >
-            Reconnect / Add More Pages
-          </button>
-        )}
+      <div style={{ textAlign: "center", display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+        <button
+          onClick={handleFBLogin}
+          style={{
+            padding: "14px 32px",
+            fontSize: 16,
+            background: userProfile?.facebookConnected ? "#42b72a" : "#1877f2",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
+            cursor: "pointer",
+            fontWeight: 600,
+          }}
+        >
+          {userProfile?.facebookConnected ? "Reconnect / Add More Pages" : "Connect Facebook"}
+        </button>
 
-        {/* Tutorial Button */}
         <button
           onClick={openTutorial}
           style={{
-            marginLeft: 10,
             padding: "14px 32px",
-            fontSize: 18,
+            fontSize: 16,
             background: "#fff",
             color: "#1877f2",
             border: "2px solid #1877f2",
             borderRadius: 8,
             cursor: "pointer",
+            fontWeight: 600,
           }}
         >
           📹 View Tutorial

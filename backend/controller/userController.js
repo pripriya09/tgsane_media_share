@@ -33,16 +33,22 @@ export async function connectFacebook(req, res) {
       });
     }
 
-    // SAVE TO USER IN DB
+    // SAVE TO USER IN DB — NOW WITH facebookConnected FLAG
     const user = await User.findByIdAndUpdate(
       userId,
-      { $set: { pages: enrichedPages } },
+      { 
+        $set: { 
+          pages: enrichedPages,
+          facebookConnected: true  // ← NEW: Mark as Facebook connected
+        } 
+      },
       { new: true }
     );
 
     if (!user) return res.status(404).json({ error: "User not found" });
 
-    console.log(`Saved ${enrichedPages.length} pages for user ${userId}`);
+    console.log(`✅ Saved ${enrichedPages.length} pages for user ${userId}`);
+    console.log(`✅ Set facebookConnected = true for user ${userId}`);
 
     const safePages = enrichedPages.map(p => ({
       pageId: p.pageId,
@@ -50,12 +56,13 @@ export async function connectFacebook(req, res) {
       instagramBusinessId: p.instagramBusinessId,
     }));
 
-    return res.json({ success: true, pages: safePages });
+    return res.json({ success: true, pages: safePages, facebookConnected: true });
   } catch (err) {
     console.error("connectFacebook error:", err);
     return res.status(500).json({ error: err.message });
   }
 }
+
 // FINAL WORKING VERSION — getConnectedPages
 export async function getConnectedPages(req, res) {
   try {
@@ -65,7 +72,7 @@ export async function getConnectedPages(req, res) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const user = await User.findById(userId).select("pages");
+    const user = await User.findById(userId).select("pages facebookConnected");
     if (!user) {
       console.log("User not found:", userId);
       return res.status(404).json({ error: "User not found" });
@@ -77,14 +84,23 @@ export async function getConnectedPages(req, res) {
       instagramBusinessId: p.instagramBusinessId || null,
     }));
 
-    console.log("Returning pages for user:", userId, safePages); // ← THIS WILL SHOW IN LOGS
+    console.log("Returning pages for user:", userId, "Facebook Connected:", user.facebookConnected, safePages);
 
-    return res.json({ pages: safePages });
+    return res.json({ 
+      pages: safePages, 
+      facebookConnected: user.facebookConnected || false  // ← Return connection status
+    });
   } catch (err) {
     console.error("getConnectedPages error:", err);
     return res.status(500).json({ error: err.message });
   }
 }
+
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET
+});
 cloudinary.config({
   cloud_name: process.env.CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -429,6 +445,35 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
 
   } catch (err) {
     console.error("postToChannels error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+
+// userController.js - ADD THIS FUNCTION
+export async function getPostStats(req, res) {
+  try {
+    const userId = req.user.userId;
+    const Post = (await import("../models/Post.js")).default;
+
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [totalPosts, fbPosts, igPosts, postsThisWeek] = await Promise.all([
+      Post.countDocuments({ userId }),
+      Post.countDocuments({ userId, fbPostId: { $exists: true, $ne: null } }),
+      Post.countDocuments({ userId, igMediaId: { $exists: true, $ne: null } }),
+      Post.countDocuments({ userId, postedAt: { $gte: weekAgo } })
+    ]);
+
+    return res.json({
+      totalPosts,
+      fbPosts,
+      igPosts,
+      postsThisWeek
+    });
+  } catch (err) {
+    console.error("getPostStats error:", err);
     return res.status(500).json({ error: err.message });
   }
 }

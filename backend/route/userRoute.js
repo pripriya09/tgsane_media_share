@@ -1,6 +1,6 @@
 // userRoute.js
 import express from "express";
-import { connectFacebook, getConnectedPages, postToChannels } from "../controller/userController.js";
+import { connectFacebook, getConnectedPages, postToChannels,getPostStats } from "../controller/userController.js";
 import { ensureAuth } from "../utils/auth.js";
 import Post from "../models/Post.js";  // ← Already imported — perfect!
 
@@ -9,6 +9,8 @@ const router = express.Router();
 router.post("/connect/facebook", ensureAuth(), connectFacebook);
 router.get("/pages", ensureAuth(), getConnectedPages);
 router.post("/post", ensureAuth(), postToChannels);
+// userRoute.js - ADD THIS LINE
+router.get("/post-stats", ensureAuth(), getPostStats);
 
 // ADD THIS NEW ROUTE — RIGHT HERE!
 router.get("/posts", ensureAuth(), async (req, res) => {

@@ -63,6 +63,74 @@ export async function connectFacebook(req, res) {
   }
 }
 
+// // Backend - Add to userController.js
+// export async function checkRateLimits(req, res) {
+//   try {
+//     const { instagramBusinessId, pageAccessToken } = req.body;
+    
+//     const resp = await fetch(
+//       `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}/content_publishing_limit`,
+//       {
+//         method: "GET",
+//         headers: { "Authorization": `Bearer ${pageAccessToken}` }
+//       }
+//     );
+//     const data = await resp.json();
+    
+//     // Returns: { data: [{ quota_usage: 15, config: { quota_total: 25 } }] }
+//     return res.json(data);
+//   } catch (err) {
+//     return res.status(500).json({ error: err.message });
+//   }
+// }
+
+// userController.js - Updated version
+export async function checkRateLimits(req, res) {
+  try {
+    const userId = req.user?.userId;  // From JWT token
+    const { pageId } = req.body;
+    
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Get page from user's connected pages
+    const page = user.pages?.find(p => String(p.pageId) === String(pageId));
+    if (!page) {
+      return res.status(400).json({ error: "Page not found" });
+    }
+
+    if (!page.instagramBusinessId) {
+      return res.status(400).json({ error: "No Instagram Business Account connected" });
+    }
+
+    const resp = await fetch(
+      `https://graph.facebook.com/${FB_API_VERSION}/${page.instagramBusinessId}/content_publishing_limit?access_token=${page.pageAccessToken}`,
+      {
+        method: "GET"
+      }
+    );
+    
+    const data = await resp.json();
+    
+    if (data.error) {
+      return res.status(500).json({ error: data.error });
+    }
+    
+    // Returns: { data: [{ quota_usage: 15, config: { quota_total: 25 } }] }
+    return res.json(data);
+  } catch (err) {
+    console.error("checkRateLimits error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+
 // FINAL WORKING VERSION — getConnectedPages
 export async function getConnectedPages(req, res) {
   try {
@@ -108,36 +176,70 @@ cloudinary.config({
 });
 
 // Helper: upload a buffer or local file path to Cloudinary as video (returns secure_url)
-async function uploadVideoToCloudinaryFromBuffer(buffer, publicId = `video-${Date.now()}`) {
+// Update Cloudinary upload to ensure compatibility
+async function uploadVideoToCloudinaryFromBuffer(buffer, publicId) {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
-      { resource_type: "video", public_id: publicId, folder: "fb_ig_videos" },
+      { 
+        resource_type: "video",
+        public_id: publicId,
+        folder: "fb_ig_videos",
+        // Add these for better compatibility
+        format: "mp4",
+        transformation: [
+          { video_codec: "h264" },
+          { audio_codec: "aac" }
+        ]
+      },
       (error, result) => (error ? reject(error) : resolve(result))
     );
     streamifier.createReadStream(buffer).pipe(uploadStream);
   });
 }
 
-// Helper: poll IG creation container until FINISHED or ERROR
-async function pollIgCreationStatus(creationId, accessToken) {
+
+// Update pollIgCreationStatus
+async function pollIgCreationStatus(creationId, accessToken, maxWaitTime = 600000) {
   const start = Date.now();
-  while (Date.now() - start < 600000) {
+  let attempts = 0;
+  
+  while (Date.now() - start < maxWaitTime) {
+    attempts++;
     await new Promise(r => setTimeout(r, 6000));
+    
     try {
       const resp = await axios.get(
         `https://graph.facebook.com/${FB_API_VERSION}/${creationId}`,
         { 
-          params: { fields: "status_code", access_token: accessToken }, 
-          timeout: 15000  // Increased for stability
+          params: { fields: "status_code,status", access_token: accessToken },
+          timeout: 15000
         }
       );
+      
+      console.log(`Poll attempt ${attempts}: ${resp.data.status_code}`);
+      
       if (resp.data.status_code === "FINISHED") return { ok: true };
-      if (resp.data.status_code === "ERROR") return { ok: false, error: resp.data };
+      if (resp.data.status_code === "ERROR") {
+        return { 
+          ok: false, 
+          error: { 
+            message: `Processing failed: ${resp.data.status}`,
+            details: resp.data
+          } 
+        };
+      }
     } catch (e) {
-      if (e.code === 'ECONNABORTED' || e.message.includes('socket')) continue; // Ignore hang ups
+      if (e.code === 'ECONNABORTED' || e.message.includes('socket')) continue;
+      console.error(`Poll error on attempt ${attempts}:`, e.message);
     }
   }
-  return { ok: false, error: { message: "Timeout" } };
+  
+  return { 
+    ok: false, 
+    error: { 
+      message: `Timeout after ${attempts} attempts (${Math.round((Date.now() - start) / 1000)}s)` 
+    } 
+  };
 }
 
 
@@ -157,6 +259,21 @@ export async function postToChannels(req, res) {
     } = req.body;
 
     if (!userId || !pageId) return res.status(400).json({ error: "Missing userId or pageId" });
+
+// userController.js - After extracting req.body
+console.log("📥 RECEIVED POST REQUEST:");
+console.log("Type:", type);
+console.log("VideoUrl:", videoUrl);
+console.log("Image:", image);
+console.log("VideoBase64 exists?", !!req.body.videoBase64);
+
+// Force correct type if videoUrl exists
+if (videoUrl && !type) {
+  type = "video";
+  console.log("⚠️ Type was missing, forcing to 'video' because videoUrl exists");
+}
+
+
 
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -251,11 +368,11 @@ export async function postToChannels(req, res) {
         results.fb = json.error ? { error: json.error } : json;
       } 
       else if (type === "video") {
-        let video = videoUrl;
+        let video = videoUrl; 
         if (req.body.videoBase64) {
           const buff = Buffer.from(req.body.videoBase64, "base64");
-          const up = await uploadVideoToCloudinaryFromBuffer(buff);
-          video = up.secure_url;
+          const up = await uploadVideoToCloudinaryFromBuffer(buff, `video-${Date.now()}`);
+          video = up.secure_url; 
         }
         if (!video) {
           results.fb = { error: { message: "No video URL" } };
@@ -263,7 +380,7 @@ export async function postToChannels(req, res) {
           const resp = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/videos`, {
             method: "POST",
             body: new URLSearchParams({
-              file_url: video,
+              file_url: video,  // ← Use optimized video URL here
               description: title || "",
               access_token: pageAccessToken
             })
@@ -312,6 +429,30 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
     }
   
     console.log("Child IDs:", childIds);
+
+
+  // Validate aspect ratios match
+  const aspectRatios = items.map(item => {
+    // You'd need to get actual dimensions from Cloudinary
+    return item.aspectRatio || "1:1";
+  });
+  
+  const allSame = aspectRatios.every(ar => ar === aspectRatios[0]);
+  if (!allSame) {
+    return res.status(400).json({ 
+      error: "All carousel items must have the same aspect ratio" 
+    });
+  }
+  
+  // Validate max 10 items
+  if (items.length > 10) {
+    return res.status(400).json({ 
+      error: "Maximum 10 items allowed in carousel" 
+    });
+  }
+
+
+
   
     // Create parent carousel
     const carouselPayload = new URLSearchParams({
@@ -378,10 +519,10 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
         let video = videoUrl;
         if (req.body.videoBase64) {
           const buff = Buffer.from(req.body.videoBase64, "base64");
-          const up = await uploadVideoToCloudinaryFromBuffer(buff);
-          video = up.secure_url;
+          const up = await uploadVideoToCloudinaryFromBuffer(buff, `video-${Date.now()}`);
+          video = up.secure_url;  // ← Use optimized URL
         }
-
+    
         if (!video) {
           results.ig = { error: { message: "No video URL" } };
         } else {
@@ -391,7 +532,7 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
               method: "POST",
               body: new URLSearchParams({
                 media_type: "REELS",
-                video_url: video,
+                video_url: video,  // ← Use optimized video URL here
                 caption: title || "",
                 share_to_feed: "true",
                 access_token: pageAccessToken
@@ -399,7 +540,7 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
             }
           );
           const createJson = await createResp.json();
-
+    
           if (createJson.error) {
             results.ig = { error: createJson.error };
           } else {
@@ -413,7 +554,6 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
               } else if (publishJson.error) {
                 results.ig = { error: publishJson.error };
               } else {
-                // Post succeeded even if response hung up
                 results.ig = { id: createJson.id, note: "Posted (socket hang up ignored)" };
               }
             }
@@ -421,7 +561,6 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
         }
       }
     }
-
     const Post = (await import("../models/Post.js")).default;
 
     const postData = {

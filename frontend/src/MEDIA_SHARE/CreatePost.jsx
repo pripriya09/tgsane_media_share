@@ -125,14 +125,17 @@ function CreatePost() {
       const results = Array.isArray(res.data) ? res.data : [res.data];
 
       // Build uploaded items with title
-      const uploaded = results.map(r => ({
-        title: title || "",
-        type: r.resourcetype === "video" ? "video" : "image",
-        image: r.resourcetype !== "video" ? r.url : null,
-        videoUrl: r.resourcetype === "video" ? r.url : null,
-        url: r.url,
-        resourcetype: r.resourcetype
-      }));
+   // CreatePost.jsx - Line ~103
+   const uploaded = results.map(r => ({
+    title: title || "",
+    type: r.resource_type === "video" ? "video" : "image",  // ✅ Now detects video correctly
+    image: r.resource_type !== "video" ? r.url : null,
+    videoUrl: r.resource_type === "video" ? r.url : null,
+    url: r.url,
+    resource_type: r.resource_type
+  }));
+  
+
 
       // For carousel, save all items as one entry
       if (activeTab === "carousel") {
@@ -161,80 +164,80 @@ function CreatePost() {
     }
   };
 
-  // POST - Publish to FB/IG based on selected item
-  async function handlePost(cont) {
-    try {
-      setErrorMsg("");
-      const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
-      if (!user?._id) {
-        alert("You must be logged in to post. Please login.");
-        return;
-      }
+  
 
-      const resolvedPageId = selectedPage || pages[0]?.pageId || pages[0]?.id;
-      if (!resolvedPageId) {
-        alert("No Page available. Connect Facebook first.");
-        return;
-      }
+// POST - Publish to FB/IG based on selected item
+async function handlePost(cont) {
+  try {
+    setErrorMsg("");
+    const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
+    if (!user?._id) {
+      alert("You must be logged in to post. Please login.");
+      return;
+    }
 
-      // Validate at least one checkbox is selected
-      if (!postToFB && !postToIG) {
-        alert("Please select at least Facebook or Instagram to post.");
-        return;
-      }
+    const resolvedPageId = selectedPage || pages[0]?.pageId || pages[0]?.id;
+    if (!resolvedPageId) {
+      alert("No Page available. Connect Facebook first.");
+      return;
+    }
 
-      // Handle carousel
-      if (cont.type === "carousel") {
-        const res = await api.post("/user/post", {
-          userId: user._id,
-          pageId: resolvedPageId,
-          title: cont.title || "",
-          type: "carousel",
-          items: cont.items,
-          postToFB,
-          postToIG
-        });
+    // Validate at least one checkbox is selected
+    if (!postToFB && !postToIG) {
+      alert("Please select at least Facebook or Instagram to post.");
+      return;
+    }
 
-        if (res.data.success) {
-          alert(`✅ Carousel posted!\nFacebook: ${postToFB ? "Yes" : "No"}\nInstagram: ${postToIG ? "Yes" : "No"}`);
-          fetchContent();
-        } else {
-          alert("Error: " + JSON.stringify(res.data));
-        }
-        return;
-      }
-
-      // Handle single post (image/video)
-      const url = cont.type === "video" ? (cont.videoUrl || cont.image) : cont.image;
-      if (!url || !url.startsWith("https://")) {
-        alert("Media must be a public HTTPS URL. Please re-upload.");
-        return;
-      }
-
-      const body = {
+    // Handle carousel
+    if (cont.type === "carousel") {
+      const res = await api.post("/user/post", {
         userId: user._id,
         pageId: resolvedPageId,
         title: cont.title || "",
-        type: cont.type || "image",
-        image: cont.type === "image" ? cont.image : null,
-        videoUrl: cont.type === "video" ? (cont.videoUrl || cont.image) : null,
+        type: "carousel",
+        items: cont.items,
         postToFB,
-        postToIG,
-      };
+        postToIG
+      });
 
-      const res = await api.post("/user/post", body);
-      
       if (res.data.success) {
-        alert(`✅ Posted successfully!\nFacebook: ${postToFB ? "Yes" : "No"}\nInstagram: ${postToIG ? "Yes" : "No"}`);
+        alert(`✅ Carousel posted!\nFacebook: ${postToFB ? "Yes" : "No"}\nInstagram: ${postToIG ? "Yes" : "No"}`);
         fetchContent();
       } else {
         alert("Error: " + JSON.stringify(res.data));
       }
-    } catch (err) {
-      console.error("Post failed:", err);
-      alert("Post failed: " + (err.response?.data?.error || err.message));
+      return;
     }
+
+    // Handle single post (image/video) - CLEAN VERSION
+    const body = {
+      userId: user._id,
+      pageId: resolvedPageId,
+      title: cont.title || "",
+      type: cont.type,  // ← Already correct from upload
+      image: cont.image || null,
+      videoUrl: cont.videoUrl || null,
+      postToFB,
+      postToIG,
+    };
+
+    console.log("🔍 POSTING WITH TYPE:", cont.type);
+    console.log("🔍 REQUEST BODY:", body);
+
+    const res = await api.post("/user/post", body);
+    
+    if (res.data.success) {
+      alert(`✅ Posted successfully!\nFacebook: ${postToFB ? "Yes" : "No"}\nInstagram: ${postToIG ? "Yes" : "No"}`);
+      fetchContent();
+    } else {
+      alert("Error: " + JSON.stringify(res.data));
+    }
+  } catch (err) {
+    console.error("Post failed:", err);
+    alert("Post failed: " + (err.response?.data?.error || err.message));
   }
+}
+
 
   return (
     <div className="share-container" style={{ padding: 16, maxWidth: 1100, margin: "0 auto" }}>

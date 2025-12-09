@@ -1,4 +1,4 @@
-// Home.jsx - NO MAJOR CHANGES NEEDED
+// Home.jsx
 import React from 'react';
 import { Outlet } from 'react-router-dom';
 import Dashboard from './Dashboard';
@@ -6,14 +6,12 @@ import './autopost.css';
 
 function Home() {
   return (
-    <div style={{ display: "flex" }}>
+    <div style={{ display: "flex", minHeight: "100vh" }}>
+      {/* Sidebar Navigation */}
       <Dashboard />
-      <div style={{ 
-        marginLeft: "280px", // Match sidebar width
-        flex: 1, 
-        padding: "20px",
-        transition: "margin-left 0.3s"
-      }}>
+      
+      {/* Main Content Area */}
+      <div style={{ flex: 1, padding: "20px", backgroundColor: "#fafafa" }}>
         <Outlet />
       </div>
     </div>

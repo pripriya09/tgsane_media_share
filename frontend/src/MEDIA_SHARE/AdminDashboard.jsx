@@ -1,34 +1,18 @@
-// AdminDashboard.jsx - ULTRA MODERN PROFESSIONAL VERSION
+// AdminDashboard.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./api";
-import "./AdminDashboard.css";
 
 function AdminDashboard() {
   const [users, setUsers] = useState([]);
-  const [allPosts, setAllPosts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("overview");
-  const [stats, setStats] = useState({
-    totalUsers: 0,
-    totalPosts: 0,
-    activeUsers: 0,
-    adminUsers: 0,
-    fbConnected: 0,
-    igConnected: 0,
-    postsToday: 0,
-    postsThisWeek: 0
-  });
+  const [error, setError] = useState("");
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [showEditUser, setShowEditUser] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterRole, setFilterRole] = useState("all");
-  const [darkMode, setDarkMode] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  
   const navigate = useNavigate();
 
+  // Create user form state
   const [newUser, setNewUser] = useState({
     name: "",
     username: "",
@@ -36,6 +20,7 @@ function AdminDashboard() {
     role: "user"
   });
 
+  // Edit user form state
   const [editUser, setEditUser] = useState({
     name: "",
     username: "",
@@ -45,15 +30,8 @@ function AdminDashboard() {
 
   useEffect(() => {
     checkAuth();
-    loadAllData();
-    const savedTheme = localStorage.getItem("adminTheme");
-    if (savedTheme === "dark") setDarkMode(true);
+    loadUserStats();
   }, []);
-
-  useEffect(() => {
-    document.body.className = darkMode ? "dark-mode" : "light-mode";
-    localStorage.setItem("adminTheme", darkMode ? "dark" : "light");
-  }, [darkMode]);
 
   const checkAuth = () => {
     const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
@@ -62,19 +40,14 @@ function AdminDashboard() {
     }
   };
 
-  const loadAllData = async () => {
+  const loadUserStats = async () => {
     try {
       setLoading(true);
-      const [usersRes, postsRes, statsRes] = await Promise.all([
-        api.get("/admin/users"),
-        api.get("/admin/all-posts"),
-        api.get("/admin/stats")
-      ]);
-      setUsers(usersRes.data.users || []);
-      setAllPosts(postsRes.data.posts || []);
-      setStats(statsRes.data || {});
+      const res = await api.get("/admin/user-stats");
+      setUsers(res.data.users || []);
     } catch (err) {
-      console.error("Failed to load admin data:", err);
+      console.error("Failed to load users:", err);
+      setError("Failed to load users: " + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
     }
@@ -84,16 +57,16 @@ function AdminDashboard() {
     e.preventDefault();
     try {
       await api.post("/admin/create-user", newUser);
+      alert("✅ User created successfully!");
       setShowCreateUser(false);
       setNewUser({ name: "", username: "", password: "", role: "user" });
-      loadAllData();
-      showNotification("User created successfully", "success");
+      loadUserStats();
     } catch (err) {
-      showNotification(err.response?.data?.error || "Failed to create user", "error");
+      alert("Failed to create user: " + (err.response?.data?.error || err.message));
     }
   };
 
-  const handleEditUser = (user) => {
+  const handleEditUser = async (user) => {
     setEditingUser(user);
     setEditUser({
       name: user.name,
@@ -112,507 +85,316 @@ function AdminDashboard() {
         username: editUser.username,
         role: editUser.role
       };
-      if (editUser.password) updateData.password = editUser.password;
-      
+      // Only include password if it's not empty
+      if (editUser.password) {
+        updateData.password = editUser.password;
+      }
+
       await api.put(`/admin/users/${editingUser._id}`, updateData);
+      alert("✅ User updated successfully!");
       setShowEditUser(false);
       setEditingUser(null);
-      loadAllData();
-      showNotification("User updated successfully", "success");
+      setEditUser({ name: "", username: "", password: "", role: "user" });
+      loadUserStats();
     } catch (err) {
-      showNotification(err.response?.data?.error || "Failed to update user", "error");
+      alert("Failed to update user: " + (err.response?.data?.error || err.message));
     }
   };
 
   const handleDeleteUser = async (userId, username) => {
-    if (!window.confirm(`Delete "${username}"? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+
     try {
       await api.delete(`/admin/users/${userId}`);
-      loadAllData();
-      showNotification("User deleted successfully", "success");
+      alert("✅ User deleted");
+      loadUserStats();
     } catch (err) {
-      showNotification(err.response?.data?.error || "Failed to delete user", "error");
+      alert("Failed to delete user: " + (err.response?.data?.error || err.message));
     }
   };
 
-  const handleDeletePost = async (postId) => {
-    if (!window.confirm("Delete this post? This cannot be undone.")) return;
-    try {
-      await api.delete(`/admin/posts/${postId}`);
-      loadAllData();
-      showNotification("Post deleted successfully", "success");
-    } catch (err) {
-      showNotification(err.response?.data?.error || "Failed to delete post", "error");
-    }
+  const handleLogout = () => {
+    localStorage.clear();
+    navigate("/login");
   };
 
-  const showNotification = (message, type) => {
-    // Simple notification - you can enhance this later
-    alert(message);
+  const formatDate = (date) => {
+    if (!date) return "-";
+    return new Date(date).toLocaleDateString();
   };
 
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.name?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRole = filterRole === "all" || user.role === filterRole;
-    return matchesSearch && matchesRole;
-  });
-
-  if (loading) {
-    return (
-      <div className="admin-loading-screen">
-        <div className="loading-spinner"></div>
-        <p className="loading-text">Loading Dashboard...</p>
-      </div>
-    );
-  }
+  if (loading) return <div style={{ padding: 20 }}>Loading...</div>;
 
   return (
-    <div className={`admin-dashboard-modern ${darkMode ? "dark" : "light"}`}>
-      
-      {/* SIDEBAR */}
-      <aside className={`admin-sidebar ${sidebarOpen ? "open" : "closed"}`}>
-        <div className="sidebar-header">
-          <div className="logo-section">
-            <div className="logo-icon">⚡</div>
-            {sidebarOpen && <span className="logo-text">Admin Panel</span>}
-          </div>
-          <button 
-            className="sidebar-toggle"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-          >
-            {sidebarOpen ? "←" : "→"}
-          </button>
-        </div>
-
-        <nav className="sidebar-nav">
-          <button 
-            className={`nav-btn ${activeTab === "overview" ? "active" : ""}`}
-            onClick={() => setActiveTab("overview")}
-          >
-            <span className="nav-icon">📊</span>
-            {sidebarOpen && <span className="nav-text">Overview</span>}
-          </button>
-          <button 
-            className={`nav-btn ${activeTab === "users" ? "active" : ""}`}
-            onClick={() => setActiveTab("users")}
-          >
-            <span className="nav-icon">👥</span>
-            {sidebarOpen && <span className="nav-text">Users</span>}
-            {sidebarOpen && <span className="nav-badge">{users.length}</span>}
-          </button>
-          <button 
-            className={`nav-btn ${activeTab === "posts" ? "active" : ""}`}
-            onClick={() => setActiveTab("posts")}
-          >
-            <span className="nav-icon">📝</span>
-            {sidebarOpen && <span className="nav-text">Posts</span>}
-            {sidebarOpen && <span className="nav-badge">{allPosts.length}</span>}
-          </button>
-        </nav>
-
-        <div className="sidebar-footer">
-          <button 
-            className="sidebar-action-btn"
-            onClick={() => navigate("/home")}
-          >
-            <span className="nav-icon">🏠</span>
-            {sidebarOpen && <span>Back to Home</span>}
-          </button>
-          <button 
-            className="sidebar-action-btn theme-btn"
-            onClick={() => setDarkMode(!darkMode)}
-          >
-            <span className="nav-icon">{darkMode ? "☀️" : "🌙"}</span>
-            {sidebarOpen && <span>{darkMode ? "Light" : "Dark"} Mode</span>}
-          </button>
-          <button 
-            className="sidebar-action-btn logout-btn"
-            onClick={() => {
-              localStorage.clear();
-              navigate("/login");
+    <div style={{ minHeight: "100vh", background: "#f5f5f5" }}>
+      {/* Header */}
+      <div style={{
+        background: "white",
+        padding: "20px",
+        boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center"
+      }}>
+        <h2 style={{ margin: 0 }}>👨‍💼 Admin Dashboard</h2>
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            onClick={() => setShowCreateUser(true)}
+            style={{
+              padding: "10px 20px",
+              background: "#4caf50",
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontWeight: "600"
             }}
           >
-            <span className="nav-icon">🚪</span>
-            {sidebarOpen && <span>Logout</span>}
+            + Create User
+          </button>
+          <button
+            onClick={handleLogout}
+            style={{
+              padding: "10px 20px",
+              background: "#f44336",
+              color: "white",
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer"
+            }}
+          >
+            Logout
           </button>
         </div>
-      </aside>
+      </div>
 
-      {/* MAIN CONTENT */}
-      <main className={`admin-main ${sidebarOpen ? "" : "expanded"}`}>
-        
-        {/* TOP BAR */}
-        <header className="admin-topbar">
-          <div className="topbar-left">
-            <h1 className="page-title">
-              {activeTab === "overview" && "📊 Dashboard Overview"}
-              {activeTab === "users" && "👥 User Management"}
-              {activeTab === "posts" && "📝 Content Management"}
-            </h1>
-          </div>
-          <div className="topbar-right">
-            <div className="admin-badge-display">Administrator</div>
-          </div>
-        </header>
-
-        {/* CONTENT AREA */}
-        <div className="admin-content-area">
-
-          {/* ========== OVERVIEW TAB ========== */}
-          {activeTab === "overview" && (
-            <div className="overview-container">
-              
-              {/* STATS GRID */}
-              <div className="modern-stats-grid">
-                <div className="stat-card-modern stat-blue">
-                  <div className="stat-icon-circle">👥</div>
-                  <div className="stat-details">
-                    <h2>{stats.totalUsers}</h2>
-                    <p>Total Users</p>
-                  </div>
-                  <div className="stat-trend">↑ 12%</div>
-                </div>
-
-                <div className="stat-card-modern stat-green">
-                  <div className="stat-icon-circle">✅</div>
-                  <div className="stat-details">
-                    <h2>{stats.activeUsers}</h2>
-                    <p>Active Users</p>
-                    <span className="stat-subtitle">Last 7 days</span>
-                  </div>
-                  <div className="stat-trend">↑ 8%</div>
-                </div>
-
-                <div className="stat-card-modern stat-purple">
-                  <div className="stat-icon-circle">📝</div>
-                  <div className="stat-details">
-                    <h2>{stats.totalPosts}</h2>
-                    <p>Total Posts</p>
-                  </div>
-                  <div className="stat-trend">↑ 24%</div>
-                </div>
-
-                <div className="stat-card-modern stat-orange">
-                  <div className="stat-icon-circle">🔥</div>
-                  <div className="stat-details">
-                    <h2>{stats.postsToday}</h2>
-                    <p>Posts Today</p>
-                  </div>
-                  <div className="stat-trend">↑ 5%</div>
-                </div>
-
-                <div className="stat-card-modern stat-pink">
-                  <div className="stat-icon-circle">📘</div>
-                  <div className="stat-details">
-                    <h2>{stats.fbConnected}</h2>
-                    <p>Facebook</p>
-                  </div>
-                </div>
-
-                <div className="stat-card-modern stat-cyan">
-                  <div className="stat-icon-circle">📷</div>
-                  <div className="stat-details">
-                    <h2>{stats.igConnected}</h2>
-                    <p>Instagram</p>
-                  </div>
-                </div>
-
-                <div className="stat-card-modern stat-red">
-                  <div className="stat-icon-circle">👑</div>
-                  <div className="stat-details">
-                    <h2>{stats.adminUsers}</h2>
-                    <p>Admins</p>
-                  </div>
-                </div>
-
-                <div className="stat-card-modern stat-teal">
-                  <div className="stat-icon-circle">📅</div>
-                  <div className="stat-details">
-                    <h2>{stats.postsThisWeek}</h2>
-                    <p>This Week</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* QUICK ACTIONS */}
-              <div className="quick-actions-modern">
-                <h3 className="section-title">⚡ Quick Actions</h3>
-                <div className="action-grid">
-                  <button 
-                    className="action-card action-primary"
-                    onClick={() => {
-                      setShowCreateUser(true);
-                    }}
-                  >
-                    <span className="action-icon">➕</span>
-                    <span className="action-text">Create User</span>
-                  </button>
-                  <button 
-                    className="action-card action-secondary"
-                    onClick={() => setActiveTab("users")}
-                  >
-                    <span className="action-icon">👥</span>
-                    <span className="action-text">View Users</span>
-                  </button>
-                  <button 
-                    className="action-card action-success"
-                    onClick={() => setActiveTab("posts")}
-                  >
-                    <span className="action-icon">📝</span>
-                    <span className="action-text">View Posts</span>
-                  </button>
-                  <button 
-                    className="action-card action-warning"
-                    onClick={loadAllData}
-                  >
-                    <span className="action-icon">🔄</span>
-                    <span className="action-text">Refresh Data</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* RECENT ACTIVITY */}
-              <div className="activity-section-modern">
-                <h3 className="section-title">🕒 Recent Activity</h3>
-                <div className="activity-timeline">
-                  {allPosts.slice(0, 5).map(post => (
-                    <div key={post._id} className="activity-item-modern">
-                      <div className="activity-avatar">
-                        {(post.userId?.username || "U").charAt(0).toUpperCase()}
-                      </div>
-                      <div className="activity-content">
-                        <p className="activity-title">
-                          <strong>{post.userId?.username || "Unknown"}</strong> posted
-                        </p>
-                        <p className="activity-description">{post.title || "No caption"}</p>
-                        <p className="activity-time">{new Date(post.postedAt).toLocaleString()}</p>
-                      </div>
-                      <div className="activity-badges">
-                        {post.fbPostId && <span className="platform-badge fb-badge">FB</span>}
-                        {post.igMediaId && <span className="platform-badge ig-badge">IG</span>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ========== USERS TAB ========== */}
-          {activeTab === "users" && (
-            <div className="users-container-modern">
-              <div className="content-header">
-                <div className="header-left">
-                  <h2 className="content-title">User Management</h2>
-                  <p className="content-subtitle">{filteredUsers.length} users found</p>
-                </div>
-                <button 
-                  className="btn-modern btn-primary-modern"
-                  onClick={() => setShowCreateUser(true)}
-                >
-                  <span className="btn-icon">➕</span>
-                  Create User
-                </button>
-              </div>
-
-              {/* FILTERS */}
-              <div className="filters-modern">
-                <div className="search-box-modern">
-                  <span className="search-icon">🔍</span>
-                  <input
-                    type="text"
-                    placeholder="Search users..."
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    className="search-input-modern"
-                  />
-                </div>
-                <select 
-                  value={filterRole}
-                  onChange={e => setFilterRole(e.target.value)}
-                  className="filter-select-modern"
-                >
-                  <option value="all">All Roles</option>
-                  <option value="user">Users Only</option>
-                  <option value="admin">Admins Only</option>
-                </select>
-              </div>
-
-              {/* USERS TABLE */}
-              <div className="table-modern-container">
-                <table className="modern-table">
-                  <thead>
-                    <tr>
-                      <th>User</th>
-                      <th>Role</th>
-                      <th>Connections</th>
-                      <th>Posts</th>
-                      <th>Last Active</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredUsers.map(user => (
-                      <tr key={user._id}>
-                        <td>
-                          <div className="user-cell">
-                            <div className="user-avatar-small">
-                              {(user.username || "U").charAt(0).toUpperCase()}
-                            </div>
-                            <div>
-                              <div className="user-name-cell">{user.username}</div>
-                              <div className="user-email-cell">{user.name || "-"}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`role-pill role-${user.role}`}>
-                            {user.role}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="connection-badges">
-                            {user.facebookId && <span className="conn-badge conn-fb">FB</span>}
-                            {user.pages?.some(p => p.instagramBusinessId) && <span className="conn-badge conn-ig">IG</span>}
-                          </div>
-                        </td>
-                        <td>
-                          <span className="count-pill">{user.postsCount || 0}</span>
-                        </td>
-                        <td className="date-cell-modern">
-                          {user.lastPostAt ? new Date(user.lastPostAt).toLocaleDateString() : "-"}
-                        </td>
-                        <td>
-                          <div className="action-buttons-cell">
-                            <button
-                              className="icon-btn icon-btn-edit"
-                              onClick={() => handleEditUser(user)}
-                              title="Edit"
-                            >
-                              ✏️
-                            </button>
-                            <button
-                              className="icon-btn icon-btn-delete"
-                              onClick={() => handleDeleteUser(user._id, user.username)}
-                              title="Delete"
-                            >
-                              🗑️
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* ========== POSTS TAB ========== */}
-          {activeTab === "posts" && (
-            <div className="posts-container-modern">
-              <div className="content-header">
-                <div className="header-left">
-                  <h2 className="content-title">Content Management</h2>
-                  <p className="content-subtitle">{allPosts.length} posts total</p>
-                </div>
-              </div>
-
-              {/* POSTS MASONRY GRID */}
-              <div className="posts-masonry-grid">
-                {allPosts.map(post => (
-                  <div key={post._id} className="post-card-modern">
-                    {post.image && (
-                      <div className="post-image-modern">
-                        <img src={post.image} alt="Post" />
-                        <button
-                          className="delete-overlay-btn"
-                          onClick={() => handleDeletePost(post._id)}
-                          title="Delete"
-                        >
-                          🗑️
-                        </button>
-                      </div>
-                    )}
-                    <div className="post-content-modern">
-                      <div className="post-user-info">
-                        <div className="post-avatar-small">
-                          {(post.userId?.username || "U").charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="post-author">{post.userId?.username || "Unknown"}</div>
-                          <div className="post-time">{new Date(post.postedAt).toLocaleDateString()}</div>
-                        </div>
-                      </div>
-                      <p className="post-caption">{post.title || "No caption"}</p>
-                      <div className="post-meta-badges">
-                        <span className="type-pill">{post.type || "image"}</span>
-                        {post.fbPostId && <span className="platform-pill fb-pill">FB</span>}
-                        {post.igMediaId && <span className="platform-pill ig-pill">IG</span>}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
+      {/* Stats Cards */}
+      <div style={{ padding: "20px", display: "flex", gap: "20px", flexWrap: "wrap" }}>
+        <div style={{
+          background: "white",
+          padding: "20px",
+          borderRadius: "8px",
+          boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+          flex: "1",
+          minWidth: "200px"
+        }}>
+          <h3 style={{ margin: 0, color: "#666" }}>Total Users</h3>
+          <p style={{ fontSize: "32px", fontWeight: "bold", margin: "10px 0 0 0" }}>
+            {users.length}
+          </p>
         </div>
-      </main>
 
-      {/* ========== CREATE USER MODAL ========== */}
+        <div style={{
+          background: "white",
+          padding: "20px",
+          borderRadius: "8px",
+          boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+          flex: "1",
+          minWidth: "200px"
+        }}>
+          <h3 style={{ margin: 0, color: "#666" }}>Total Posts</h3>
+          <p style={{ fontSize: "32px", fontWeight: "bold", margin: "10px 0 0 0" }}>
+            {users.reduce((sum, u) => sum + u.postsCount, 0)}
+          </p>
+        </div>
+
+        <div style={{
+          background: "white",
+          padding: "20px",
+          borderRadius: "8px",
+          boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+          flex: "1",
+          minWidth: "200px"
+        }}>
+          <h3 style={{ margin: 0, color: "#666" }}>Active Users</h3>
+          <p style={{ fontSize: "32px", fontWeight: "bold", margin: "10px 0 0 0" }}>
+            {users.filter(u => u.facebookId).length}
+          </p>
+        </div>
+      </div>
+
+      {/* Users Table */}
+      <div style={{ padding: "20px" }}>
+        <div style={{ background: "white", borderRadius: "8px", boxShadow: "0 2px 4px rgba(0,0,0,0.1)", overflow: "hidden" }}>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#f0f0f0" }}>
+                  <th style={thStyle}>Username</th>
+                  <th style={thStyle}>Name</th>
+                  <th style={thStyle}>Role</th>
+                  <th style={thStyle}>FB Connected</th>
+                  <th style={thStyle}>Pages</th>
+                  <th style={thStyle}>Posts</th>
+                  <th style={thStyle}>Last Post</th>
+                  <th style={thStyle}>Created</th>
+                  <th style={thStyle}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((user) => (
+                  <tr key={user._id} style={{ borderBottom: "1px solid #ddd" }}>
+                    <td style={tdStyle}>{user.username}</td>
+                    <td style={tdStyle}>{user.name || "-"}</td>
+                    <td style={tdStyle}>
+                      <span style={{
+                        padding: "4px 8px",
+                        borderRadius: "12px",
+                        fontSize: "12px",
+                        background: user.role === "admin" ? "#e3f2fd" : "#f0f0f0",
+                        color: "#333",
+                        fontWeight: "600"
+                      }}>
+                        {user.role}
+                      </span>
+                    </td>
+                    <td style={tdStyle}>
+                      {user.facebookId ? (
+                        <span style={{ color: "#4caf50" }}>✓ Yes</span>
+                      ) : (
+                        <span style={{ color: "#999" }}>✗ No</span>
+                      )}
+                    </td>
+                    <td style={tdStyle}>{user.pagesCount}</td>
+                    <td style={tdStyle}>{user.postsCount}</td>
+                    <td style={tdStyle}>{formatDate(user.lastPostAt)}</td>
+                    <td style={tdStyle}>{formatDate(user.createdAt)}</td>
+                    <td style={tdStyle}>
+                      <button
+                        onClick={() => handleEditUser(user)}
+                        style={{
+                          marginRight: "5px",
+                          padding: "6px 12px",
+                          background: "#2196F3",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          fontSize: "12px"
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteUser(user._id, user.username)}
+                        style={{
+                          padding: "6px 12px",
+                          background: "#f44336",
+                          color: "white",
+                          border: "none",
+                          borderRadius: "4px",
+                          cursor: "pointer",
+                          fontSize: "12px"
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Create User Modal */}
       {showCreateUser && (
-        <div className="modal-backdrop-modern" onClick={() => setShowCreateUser(false)}>
-          <div className="modal-dialog-modern" onClick={e => e.stopPropagation()}>
-            <div className="modal-header-modern">
-              <h3>➕ Create New User</h3>
-              <button className="modal-close-btn" onClick={() => setShowCreateUser(false)}>✕</button>
-            </div>
-            <form onSubmit={handleCreateUser} className="modal-form-modern">
-              <div className="form-group-modern">
-                <label>Name</label>
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          background: "rgba(0,0,0,0.5)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: "white",
+            padding: "30px",
+            borderRadius: "12px",
+            width: "100%",
+            maxWidth: "500px"
+          }}>
+            <h3>Create New User</h3>
+            <form onSubmit={handleCreateUser}>
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Name</label>
                 <input
                   type="text"
                   value={newUser.name}
-                  onChange={e => setNewUser({...newUser, name: e.target.value})}
+                  onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
                   required
-                  placeholder="Enter full name"
+                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
-              <div className="form-group-modern">
-                <label>Username</label>
+
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Username</label>
                 <input
                   type="text"
                   value={newUser.username}
-                  onChange={e => setNewUser({...newUser, username: e.target.value})}
+                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
                   required
-                  placeholder="Enter username"
+                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
-              <div className="form-group-modern">
-                <label>Password</label>
+
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Password</label>
                 <input
                   type="password"
                   value={newUser.password}
-                  onChange={e => setNewUser({...newUser, password: e.target.value})}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
                   required
-                  placeholder="Enter password"
+                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
-              <div className="form-group-modern">
-                <label>Role</label>
+
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Role</label>
                 <select
                   value={newUser.role}
-                  onChange={e => setNewUser({...newUser, role: e.target.value})}
+                  onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 >
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>
-              <div className="modal-actions-modern">
-                <button type="submit" className="btn-modern btn-primary-modern">Create User</button>
-                <button type="button" className="btn-modern btn-secondary-modern" onClick={() => setShowCreateUser(false)}>
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  type="submit"
+                  style={{
+                    flex: 1,
+                    padding: "12px",
+                    background: "#4caf50",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: "600"
+                  }}
+                >
+                  Create User
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateUser(false)}
+                  style={{
+                    flex: 1,
+                    padding: "12px",
+                    background: "#999",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: "pointer"
+                  }}
+                >
                   Cancel
                 </button>
               </div>
@@ -621,55 +403,108 @@ function AdminDashboard() {
         </div>
       )}
 
-      {/* ========== EDIT USER MODAL ========== */}
+      {/* Edit User Modal */}
       {showEditUser && editingUser && (
-        <div className="modal-backdrop-modern" onClick={() => setShowEditUser(false)}>
-          <div className="modal-dialog-modern" onClick={e => e.stopPropagation()}>
-            <div className="modal-header-modern">
-              <h3>✏️ Edit User: {editingUser.username}</h3>
-              <button className="modal-close-btn" onClick={() => setShowEditUser(false)}>✕</button>
-            </div>
-            <form onSubmit={handleSaveEdit} className="modal-form-modern">
-              <div className="form-group-modern">
-                <label>Name</label>
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100%",
+          height: "100%",
+          background: "rgba(0,0,0,0.5)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000
+        }}>
+          <div style={{
+            background: "white",
+            padding: "30px",
+            borderRadius: "12px",
+            width: "100%",
+            maxWidth: "500px"
+          }}>
+            <h3>Edit User: {editingUser.username}</h3>
+            <form onSubmit={handleSaveEdit}>
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Name</label>
                 <input
                   type="text"
                   value={editUser.name}
-                  onChange={e => setEditUser({...editUser, name: e.target.value})}
+                  onChange={(e) => setEditUser({ ...editUser, name: e.target.value })}
                   required
+                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
-              <div className="form-group-modern">
-                <label>Username</label>
+
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Username</label>
                 <input
                   type="text"
                   value={editUser.username}
-                  onChange={e => setEditUser({...editUser, username: e.target.value})}
+                  onChange={(e) => setEditUser({ ...editUser, username: e.target.value })}
                   required
+                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
-              <div className="form-group-modern">
-                <label>New Password (leave blank to keep current)</label>
+
+              <div style={{ marginBottom: "15px" }}>
+                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>
+                  Password (leave empty to keep current)
+                </label>
                 <input
                   type="password"
                   value={editUser.password}
-                  onChange={e => setEditUser({...editUser, password: e.target.value})}
-                  placeholder="Enter new password or leave empty"
+                  onChange={(e) => setEditUser({ ...editUser, password: e.target.value })}
+                  placeholder="Leave empty to keep current password"
+                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
-              <div className="form-group-modern">
-                <label>Role</label>
+
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Role</label>
                 <select
                   value={editUser.role}
-                  onChange={e => setEditUser({...editUser, role: e.target.value})}
+                  onChange={(e) => setEditUser({ ...editUser, role: e.target.value })}
+                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 >
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>
-              <div className="modal-actions-modern">
-                <button type="submit" className="btn-modern btn-primary-modern">Save Changes</button>
-                <button type="button" className="btn-modern btn-secondary-modern" onClick={() => setShowEditUser(false)}>
+
+              <div style={{ display: "flex", gap: "10px" }}>
+                <button
+                  type="submit"
+                  style={{
+                    flex: 1,
+                    padding: "12px",
+                    background: "#2196F3",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontWeight: "600"
+                  }}
+                >
+                  Save Changes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditUser(false);
+                    setEditingUser(null);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "12px",
+                    background: "#999",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: "pointer"
+                  }}
+                >
                   Cancel
                 </button>
               </div>
@@ -677,9 +512,19 @@ function AdminDashboard() {
           </div>
         </div>
       )}
-
     </div>
   );
 }
+
+const thStyle = {
+  padding: "12px",
+  textAlign: "left",
+  fontWeight: "600",
+  color: "#666"
+};
+
+const tdStyle = {
+  padding: "12px"
+};
 
 export default AdminDashboard;

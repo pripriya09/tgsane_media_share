@@ -13,6 +13,10 @@ function CreatePost() {
   const [errorMsg, setErrorMsg] = useState("");
   const [postToFB, setPostToFB] = useState(true);
   const [postToIG, setPostToIG] = useState(true);
+  
+  // ✅ NEW: Rate limit state
+  const [rateLimits, setRateLimits] = useState(null);
+  const [loadingLimits, setLoadingLimits] = useState(false);
 
   const buildImageUrl = (img) => {
     if (!img) return "";
@@ -54,6 +58,15 @@ function CreatePost() {
     return () => window.removeEventListener("pagesUpdated", onPagesUpdated);
   }, []);
 
+  // ✅ NEW: Fetch rate limits when page or IG checkbox changes
+  useEffect(() => {
+    if (selectedPage && postToIG) {
+      fetchRateLimits();
+    } else {
+      setRateLimits(null);
+    }
+  }, [selectedPage, postToIG]);
+
   async function loadPagesForUser() {
     try {
       setErrorMsg("");
@@ -87,6 +100,38 @@ function CreatePost() {
       console.error("Error fetching content:", err);
       setErrorMsg("Error fetching content: " + (err.response?.data?.error || err.message));
       setContentData([]);
+    }
+  }
+
+  // ✅ NEW: Fetch Instagram rate limits
+  async function fetchRateLimits() {
+    try {
+      setLoadingLimits(true);
+      
+      if (!selectedPage || pages.length === 0) {
+        console.log("No page selected");
+        return;
+      }
+
+      const page = pages.find(p => p.pageId === selectedPage);
+      if (!page?.instagramBusinessId) {
+        console.log("No Instagram Business Account connected");
+        setRateLimits(null);
+        return;
+      }
+
+      const res = await api.post("/user/rate-limits", {
+        pageId: selectedPage
+      });
+
+      if (res.data?.data?.[0]) {
+        setRateLimits(res.data.data[0]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch rate limits:", err);
+      setRateLimits(null);
+    } finally {
+      setLoadingLimits(false);
     }
   }
 
@@ -125,17 +170,14 @@ function CreatePost() {
       const results = Array.isArray(res.data) ? res.data : [res.data];
 
       // Build uploaded items with title
-   // CreatePost.jsx - Line ~103
-   const uploaded = results.map(r => ({
-    title: title || "",
-    type: r.resource_type === "video" ? "video" : "image",  // ✅ Now detects video correctly
-    image: r.resource_type !== "video" ? r.url : null,
-    videoUrl: r.resource_type === "video" ? r.url : null,
-    url: r.url,
-    resource_type: r.resource_type
-  }));
-  
-
+      const uploaded = results.map(r => ({
+        title: title || "",
+        type: r.resource_type === "video" ? "video" : "image",
+        image: r.resource_type !== "video" ? r.url : null,
+        videoUrl: r.resource_type === "video" ? r.url : null,
+        url: r.url,
+        resource_type: r.resource_type
+      }));
 
       // For carousel, save all items as one entry
       if (activeTab === "carousel") {
@@ -164,11 +206,11 @@ function CreatePost() {
     }
   };
 
-  
-
-// POST - Publish to FB/IG based on selected item
-async function handlePost(cont) {
+ 
+ // POST - Publish to FB/IG based on selected item
+ async function handlePost(cont) {
   try {
+    // ✅ FIX: Move these to the VERY TOP (before any if statements)
     setErrorMsg("");
     const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
     if (!user?._id) {
@@ -188,6 +230,58 @@ async function handlePost(cont) {
       return;
     }
 
+    // Check rate limits before posting to Instagram
+    if (postToIG && rateLimits) {
+      if (rateLimits.quota_usage >= (rateLimits.config?.quota_total || 25)) {
+        alert("❌ Instagram daily post limit reached (25 posts). Try again tomorrow.");
+        return;
+      }
+    }
+    if (cont.type === "story") {
+      // Check if Instagram Business Account is connected
+      const page = pages.find(p => p.pageId === resolvedPageId);
+      if (!page?.instagramBusinessId) {
+        alert("❌ Instagram Business Account required for Stories.\n\nPlease connect your Instagram Business Account first.");
+        return;
+      }
+    
+      // // Show guidelines before posting
+      // const proceed = window.confirm(
+      //   "📖 Instagram Story - Final Check:\n\n" +
+      //   "✓ Stories appear at the top of Instagram feed\n" +
+      //   "✓ Disappear automatically after 24 hours\n" +
+      //   "✓ Best with vertical photos/videos (9:16 ratio)\n" +
+      //   "✓ Max video length: 60 seconds\n\n" +
+      //   "⚠️ This will post to Instagram only\n" +
+      //   "(Facebook doesn't support Stories via API)\n\n" +
+      //   "Post now?"
+      // );
+    
+      // if (!proceed) return;
+    
+      const res = await api.post("/user/story", {
+        userId: user._id,
+        pageId: resolvedPageId,
+        type: cont.mediaType || "image",
+        image: cont.image || null,
+        videoUrl: cont.videoUrl || null
+      });
+    
+      if (res.data.success) {
+        alert(
+          "✅ Instagram Story posted successfully!\n\n" +
+          "⏰ Expires in 24 hours\n\n" +
+          "💡 Tip: Open Instagram app and check the top of your feed to view it."
+        );
+        fetchContent();
+        if (rateLimits) {
+          setTimeout(() => fetchRateLimits(), 2000);
+        }
+      } else {
+        alert("❌ Failed to post story:\n\n" + (res.data.error?.message || res.data.error || "Unknown error"));
+      }
+      return;
+    }
     // Handle carousel
     if (cont.type === "carousel") {
       const res = await api.post("/user/post", {
@@ -203,18 +297,21 @@ async function handlePost(cont) {
       if (res.data.success) {
         alert(`✅ Carousel posted!\nFacebook: ${postToFB ? "Yes" : "No"}\nInstagram: ${postToIG ? "Yes" : "No"}`);
         fetchContent();
+        if (postToIG) {
+          setTimeout(() => fetchRateLimits(), 2000);
+        }
       } else {
         alert("Error: " + JSON.stringify(res.data));
       }
       return;
     }
 
-    // Handle single post (image/video) - CLEAN VERSION
+    // Handle single post (image/video)
     const body = {
       userId: user._id,
       pageId: resolvedPageId,
       title: cont.title || "",
-      type: cont.type,  // ← Already correct from upload
+      type: cont.type,
       image: cont.image || null,
       videoUrl: cont.videoUrl || null,
       postToFB,
@@ -229,6 +326,9 @@ async function handlePost(cont) {
     if (res.data.success) {
       alert(`✅ Posted successfully!\nFacebook: ${postToFB ? "Yes" : "No"}\nInstagram: ${postToIG ? "Yes" : "No"}`);
       fetchContent();
+      if (postToIG) {
+        setTimeout(() => fetchRateLimits(), 2000);
+      }
     } else {
       alert("Error: " + JSON.stringify(res.data));
     }
@@ -238,6 +338,48 @@ async function handlePost(cont) {
   }
 }
 
+// CreatePost.jsx - Add story upload handler
+const handleStoryUpload = async (e) => {
+  e.preventDefault();
+  
+  if (!singleFile) {
+    alert("Please select an image or video for your story");
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const fd = new FormData();
+    fd.append("file", singleFile);
+
+    const res = await api.post("/upload", fd);
+    const result = Array.isArray(res.data) ? res.data[0] : res.data;
+
+    const storyItem = {
+      title: "Story",
+      type: "story",
+      mediaType: result.resource_type === "video" ? "video" : "image",
+      image: result.resource_type !== "video" ? result.url : null,
+      videoUrl: result.resource_type === "video" ? result.url : null,
+      url: result.url,
+      resource_type: result.resource_type,
+      uploadedAt: new Date()
+    };
+
+    setContentData(prev => [storyItem, ...prev]);
+    alert("✅ Story uploaded! Click 'Post Story' to publish (expires in 24hrs)");
+
+    // Reset
+    setSingleFile(null);
+  } catch (err) {
+    setErrorMsg("Story upload failed: " + (err.response?.data?.error || err.message));
+  } finally {
+    setLoading(false);
+  }
+};
+
+
+
 
   return (
     <div className="share-container" style={{ padding: 16, maxWidth: 1100, margin: "0 auto" }}>
@@ -245,36 +387,64 @@ async function handlePost(cont) {
 
       {/* Tab Selection */}
       <div style={{ marginBottom: 16 }}>
-        <button 
-          onClick={() => setActiveTab("single")} 
-          style={{ 
-            padding: "8px 16px",
-            fontWeight: activeTab === "single" ? "bold" : "normal",
-            background: activeTab === "single" ? "#1976d2" : "#fff",
-            color: activeTab === "single" ? "#fff" : "#000",
-            border: "1px solid #ddd",
-            borderRadius: "4px",
-            cursor: "pointer"
-          }}
-        >
-          Single Post
-        </button>
-        <button 
-          onClick={() => setActiveTab("carousel")} 
-          style={{ 
-            marginLeft: 8,
-            padding: "8px 16px",
-            fontWeight: activeTab === "carousel" ? "bold" : "normal",
-            background: activeTab === "carousel" ? "#1976d2" : "#fff",
-            color: activeTab === "carousel" ? "#fff" : "#000",
-            border: "1px solid #ddd",
-            borderRadius: "4px",
-            cursor: "pointer"
-          }}
-        >
-          Carousel (2–10 items)
-        </button>
-      </div>
+  <button 
+    onClick={() => setActiveTab("single")} 
+    style={{ 
+      padding: "8px 16px",
+      fontWeight: activeTab === "single" ? "bold" : "normal",
+      background: activeTab === "single" ? "#1976d2" : "#fff",
+      color: activeTab === "single" ? "#fff" : "#000",
+      border: "1px solid #ddd",
+      borderRadius: "4px",
+      cursor: "pointer"
+    }}
+  >
+    Single Post
+  </button>
+  <button 
+    onClick={() => setActiveTab("carousel")} 
+    style={{ 
+      marginLeft: 8,
+      padding: "8px 16px",
+      fontWeight: activeTab === "carousel" ? "bold" : "normal",
+      background: activeTab === "carousel" ? "#1976d2" : "#fff",
+      color: activeTab === "carousel" ? "#fff" : "#000",
+      border: "1px solid #ddd",
+      borderRadius: "4px",
+      cursor: "pointer"
+    }}
+  >
+    Carousel (2–10 items)
+  </button>
+  {/* ✅ NEW: Story Tab */}
+
+<button 
+  onClick={() => {
+    alert(
+      "📖 Instagram Story Guidelines:\n\n" +
+      "• Stories appear at the top of Instagram feed\n" +
+      "• Disappear automatically after 24 hours\n" +
+      "• Best with vertical photos/videos (9:16 ratio)\n" +
+      "• Max video length: 60 seconds\n\n" +
+      "ℹ️ Instagram Only: Facebook doesn't support Stories via API"
+    );
+    setActiveTab("story");
+  }} 
+  style={{ 
+    marginLeft: 8,
+    padding: "8px 16px",
+    fontWeight: activeTab === "story" ? "bold" : "normal",
+    background: activeTab === "story" ? "#9c27b0" : "#fff",
+    color: activeTab === "story" ? "#fff" : "#000",
+    border: "1px solid #ddd",
+    borderRadius: "4px",
+    cursor: "pointer"
+  }}
+>
+  📖 Story (24hrs)
+</button>
+
+</div>
 
       {/* Checkboxes: Where to post? */}
       <div style={{ marginBottom: 16, padding: 12, background: "#f0f8ff", borderRadius: 8 }}>
@@ -299,28 +469,81 @@ async function handlePost(cont) {
         </label>
       </div>
 
+      {/* ✅ NEW: Rate Limits Display */}
+      {postToIG && rateLimits && (
+        <div style={{ 
+          marginBottom: 16,
+          padding: 12, 
+          background: rateLimits.quota_usage >= 20 ? "#fff3cd" : "#d4edda", 
+          borderRadius: 8,
+          border: `1px solid ${rateLimits.quota_usage >= 20 ? "#ffc107" : "#28a745"}`
+        }}>
+          <strong>📊 Instagram Rate Limit:</strong>
+          <div style={{ marginTop: 6 }}>
+            {rateLimits.quota_usage} / {rateLimits.config?.quota_total || 25} posts used today
+          </div>
+          <div style={{ 
+            width: "100%", 
+            height: 8, 
+            background: "#e0e0e0", 
+            borderRadius: 4, 
+            marginTop: 8,
+            overflow: "hidden"
+          }}>
+            <div style={{ 
+              width: `${(rateLimits.quota_usage / (rateLimits.config?.quota_total || 25)) * 100}%`,
+              height: "100%",
+              background: rateLimits.quota_usage >= 20 ? "#ffc107" : "#28a745",
+              transition: "width 0.3s"
+            }} />
+          </div>
+          {rateLimits.quota_usage >= 20 && (
+            <div style={{ color: "#856404", fontSize: 12, marginTop: 6 }}>
+              ⚠️ Warning: Close to daily limit
+            </div>
+          )}
+        </div>
+      )}
+
+      {loadingLimits && (
+        <div style={{ marginBottom: 16, color: "#666", fontSize: 14, padding: 12, background: "#f9f9f9", borderRadius: 8 }}>
+          Loading rate limits...
+        </div>
+      )}
+
       {errorMsg && <div style={{ color: "red", marginBottom: 12, padding: 12, background: "#fee", borderRadius: 6 }}>{errorMsg}</div>}
 
       {/* Upload Form */}
-      <form onSubmit={handleUpload} style={{ marginBottom: 30, padding: 20, background: "#f9f9f9", borderRadius: 8 }}>
-        <input
-          type="text"
-          placeholder="Caption (optional)"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          style={{ width: "100%", padding: 10, marginBottom: 12, border: "1px solid #ddd", borderRadius: 4 }}
-        />
+      <form onSubmit={activeTab === "story" ? handleStoryUpload : handleUpload} style={{ marginBottom: 30, padding: 20, background: "#f9f9f9", borderRadius: 8 }}>
+      {activeTab === "story" && (
+  <div style={{ marginBottom: 12, padding: 12, background: "#f3e5f5", borderRadius: 6, border: "1px solid #9c27b0" }}>
+    <div style={{ display: "flex", alignItems: "center" }}>
+      <span style={{ fontSize: 20, marginRight: 8 }}>📖</span>
+      <strong>Instagram Story Mode</strong>
+    </div>
+  </div>
+)}
 
-        <input
-          type="file"
-          accept="image/*,video/*"
-          multiple={activeTab === "carousel"}
-          onChange={handleFileChange}
-          style={{ marginBottom: 12 }}
-        />
+  {activeTab !== "story" && (
+    <input
+      type="text"
+      placeholder="Caption (optional)"
+      value={title}
+      onChange={e => setTitle(e.target.value)}
+      style={{ width: "100%", padding: 10, marginBottom: 12, border: "1px solid #ddd", borderRadius: 4 }}
+    />
+  )}
+
+  <input
+    type="file"
+    accept="image/*,video/*"
+    multiple={activeTab === "carousel"}
+    onChange={handleFileChange}
+    style={{ marginBottom: 12 }}
+  />
 
         {activeTab === "carousel" && files.length > 0 && (
-          <div style={{ marginBottom: 12, padding: 10, background: "#fff", borderRadius: 6 }}>
+          <div style={{ marginBottom: 12, padding: 10, background: "#fff", borderRadius: 6 }}>form onSubmit
             <strong>Selected ({files.length}/10):</strong>
             {files.map((f, i) => (
               <div key={i} style={{ marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -343,23 +566,23 @@ async function handlePost(cont) {
           </div>
         )}
 
-        <button 
-          type="submit" 
-          disabled={loading} 
-          style={{ 
-            padding: "12px 24px", 
-            fontSize: 16, 
-            background: loading ? "#ccc" : "#4caf50", 
-            color: "white", 
-            border: "none", 
-            borderRadius: 6, 
-            cursor: loading ? "not-allowed" : "pointer",
-            fontWeight: "600"
-          }}
-        >
-          {loading ? "Uploading..." : activeTab === "carousel" ? "Upload Carousel" : "Upload"}
-        </button>
-      </form>
+<button 
+    type="submit" 
+    disabled={loading} 
+    style={{ 
+      padding: "12px 24px", 
+      fontSize: 16, 
+      background: loading ? "#ccc" : activeTab === "story" ? "#9c27b0" : "#4caf50", 
+      color: "white", 
+      border: "none", 
+      borderRadius: 6, 
+      cursor: loading ? "not-allowed" : "pointer",
+      fontWeight: "600"
+    }}
+  >
+    {loading ? "Uploading..." : activeTab === "story" ? "Upload Story" : activeTab === "carousel" ? "Upload Carousel" : "Upload"}
+  </button>
+</form>
 
       {/* Uploaded Content - Ready to Post */}
       <div style={{ marginTop: 30 }}>

@@ -1,6 +1,6 @@
 // userRoute.js
 import express from "express";
-import { connectFacebook, getConnectedPages, postToChannels,checkRateLimits,getPostStats   } from "../controller/userController.js";
+import { connectFacebook, getConnectedPages, postToChannels,checkRateLimits,getPostStats,  postStory   } from "../controller/userController.js";
 import { ensureAuth } from "../utils/auth.js";
 import Post from "../models/Post.js";  // ← Already imported — perfect!
 
@@ -9,8 +9,6 @@ const router = express.Router();
 router.post("/connect/facebook", ensureAuth(), connectFacebook);
 router.get("/pages", ensureAuth(), getConnectedPages);
 router.post("/post", ensureAuth(), postToChannels);
-router.post("/rate-limits",ensureAuth(), checkRateLimits); 
-
 router.get("/post-stats", ensureAuth(), getPostStats);
 router.get("/posts", ensureAuth(), async (req, res) => {
   try {
@@ -54,8 +52,8 @@ router.delete("/posts/:postId", ensureAuth(), async (req, res) => {
   });
 
 
-
-
+  router.post("/rate-limits",ensureAuth(), checkRateLimits); 
+  router.post("/story",ensureAuth(), postStory);
 
 //   // In your user routes file
 // router.patch("/posts/:id", ensureAuth(), async (req, res) => {

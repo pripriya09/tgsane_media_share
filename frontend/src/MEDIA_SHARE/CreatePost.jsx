@@ -1,64 +1,55 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import api from "./api";
+import "./createpost.css";
 
 function CreatePost() {
-  const [activeTab, setActiveTab] = useState("single"); // "single" | "carousel"
+  // Content type state
+  const [contentType, setContentType] = useState("media");
+  
+  // Media states
   const [contentData, setContentData] = useState([]);
   const [title, setTitle] = useState("");
   const [files, setFiles] = useState([]);
   const [singleFile, setSingleFile] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [isCarousel, setIsCarousel] = useState(false);
+  
+  // Text post states
+  const [textContent, setTextContent] = useState("");
+  const [fontSize, setFontSize] = useState(48);
+  const [fontFamily, setFontFamily] = useState("Arial");
+  const [textColor, setTextColor] = useState("#ffffff");
+  const [backgroundGradient, setBackgroundGradient] = useState({ c1: "#667eea", c2: "#764ba2" });
+  const [textAlign, setTextAlign] = useState("center");
+  const [fontWeight, setFontWeight] = useState("600");
+  
+  // Platform states
   const [pages, setPages] = useState([]);
   const [selectedPage, setSelectedPage] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
-  const [postToFB, setPostToFB] = useState(true);
-  const [postToIG, setPostToIG] = useState(true);
-  
-  // ✅ NEW: Rate limit state
+  const [postToFB, setPostToFB] = useState(false);
+  const [postToIG, setPostToIG] = useState(false);
   const [rateLimits, setRateLimits] = useState(null);
-  const [loadingLimits, setLoadingLimits] = useState(false);
+  
+  const fileInputRef = useRef(null);
+  const canvasRef = useRef(null);
 
-  const buildImageUrl = (img) => {
-    if (!img) return "";
-    if (img.startsWith("http://") || img.startsWith("https://")) return img;
-    const base = import.meta.env.VITE_API_URL || "";
-    return base ? `${base.replace(/\/$/, "")}/${img.replace(/^\/+/, "")}` : img;
-  };
+  const fonts = ["Arial", "Impact", "Georgia", "Verdana", "Courier New", "Comic Sans MS", "Palatino"];
+  
+  const gradients = [
+    { name: "Purple", c1: "#667eea", c2: "#764ba2" },
+    { name: "Sunset", c1: "#ff6b6b", c2: "#feca57" },
+    { name: "Ocean", c1: "#4facfe", c2: "#00f2fe" },
+    { name: "Forest", c1: "#56ab2f", c2: "#a8e063" },
+    { name: "Instagram", c1: "#f09433", c2: "#bc1888" },
+    { name: "Night", c1: "#2c3e50", c2: "#3498db" }
+  ];
 
   useEffect(() => {
     fetchContent();
     loadPagesForUser();
   }, []);
 
-  useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("ms_pages") || "null");
-      if (Array.isArray(stored) && stored.length) {
-        setPages(stored);
-        const firstId = stored[0].pageId || stored[0].id;
-        if (firstId) setSelectedPage(firstId);
-        return;
-      }
-    } catch (err) {}
-    loadPagesForUser();
-  }, []);
-
-  useEffect(() => {
-    function onPagesUpdated(e) {
-      const pagesFromEvent = e?.detail?.pages;
-      if (Array.isArray(pagesFromEvent) && pagesFromEvent.length) {
-        setPages(pagesFromEvent);
-        const firstId = pagesFromEvent[0].pageId || pagesFromEvent[0].id;
-        setSelectedPage(firstId || "");
-        return;
-      }
-      loadPagesForUser();
-    }
-    window.addEventListener("pagesUpdated", onPagesUpdated);
-    return () => window.removeEventListener("pagesUpdated", onPagesUpdated);
-  }, []);
-
-  // ✅ NEW: Fetch rate limits when page or IG checkbox changes
   useEffect(() => {
     if (selectedPage && postToIG) {
       fetchRateLimits();
@@ -67,16 +58,47 @@ function CreatePost() {
     }
   }, [selectedPage, postToIG]);
 
+  useEffect(() => {
+    if (contentType === "text" && canvasRef.current) {
+      drawTextCanvas();
+    }
+  }, [textContent, fontSize, fontFamily, textColor, backgroundGradient, textAlign, fontWeight]);
+
+  const drawTextCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    const width = 1080;
+    const height = 1080;
+    canvas.width = width;
+    canvas.height = height;
+
+    const gradient = ctx.createLinearGradient(0, 0, width, height);
+    gradient.addColorStop(0, backgroundGradient.c1);
+    gradient.addColorStop(1, backgroundGradient.c2);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.fillStyle = textColor;
+    ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+    ctx.textAlign = textAlign;
+    ctx.textBaseline = "middle";
+
+    const lines = textContent.split("\n");
+    const lineHeight = fontSize * 1.4;
+    const startY = height / 2 - ((lines.length - 1) * lineHeight) / 2;
+    const xPos = textAlign === "left" ? 100 : textAlign === "right" ? width - 100 : width / 2;
+
+    lines.forEach((line, i) => {
+      ctx.fillText(line, xPos, startY + (i * lineHeight));
+    });
+  };
+
   async function loadPagesForUser() {
     try {
-      setErrorMsg("");
       const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
-      if (!user?._id) {
-        console.warn("No logged in user");
-        setPages([]);
-        setSelectedPage("");
-        return;
-      }
+      if (!user?._id) return;
 
       const res = await api.get("/user/pages");
       const pagesList = res.data?.pages || [];
@@ -85,61 +107,53 @@ function CreatePost() {
         setSelectedPage(pagesList[0].pageId);
       }
     } catch (err) {
-      console.error("Failed to load pages:", err.response?.data || err);
-      setErrorMsg("Failed to load pages. Reconnect Facebook.");
+      console.error("Failed to load pages:", err);
     }
   }
 
   async function fetchContent() {
     try {
-      setErrorMsg("");
       const res = await api.get("/upload");
       const arr = Array.isArray(res.data) ? res.data : res.data?.data || [];
       setContentData(arr);
     } catch (err) {
-      console.error("Error fetching content:", err);
-      setErrorMsg("Error fetching content: " + (err.response?.data?.error || err.message));
       setContentData([]);
     }
   }
 
-  // ✅ NEW: Fetch Instagram rate limits
   async function fetchRateLimits() {
     try {
-      setLoadingLimits(true);
-      
-      if (!selectedPage || pages.length === 0) {
-        console.log("No page selected");
-        return;
-      }
+      if (!selectedPage || pages.length === 0) return;
 
       const page = pages.find(p => p.pageId === selectedPage);
       if (!page?.instagramBusinessId) {
-        console.log("No Instagram Business Account connected");
         setRateLimits(null);
         return;
       }
 
-      const res = await api.post("/user/rate-limits", {
-        pageId: selectedPage
-      });
-
+      const res = await api.post("/user/rate-limits", { pageId: selectedPage });
       if (res.data?.data?.[0]) {
         setRateLimits(res.data.data[0]);
       }
     } catch (err) {
-      console.error("Failed to fetch rate limits:", err);
       setRateLimits(null);
-    } finally {
-      setLoadingLimits(false);
     }
   }
 
+  const handlePageChange = (newPageId) => {
+    setSelectedPage(newPageId);
+    
+    const newPage = pages.find(p => p.pageId === newPageId);
+    if (!newPage?.instagramBusinessId) {
+      if (postToIG) setPostToIG(false);
+    }
+  };
+
   const handleFileChange = (e) => {
     const selected = Array.from(e.target.files);
-    if (activeTab === "carousel") {
+    if (isCarousel) {
       if (selected.length + files.length > 10) {
-        alert("Maximum 10 items allowed in carousel");
+        alert("Maximum 10 items");
         return;
       }
       setFiles(prev => [...prev, ...selected]);
@@ -150,14 +164,25 @@ function CreatePost() {
 
   const removeFile = (index) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // ONLY UPLOAD - Don't post yet
-  const handleUpload = async (e) => {
+  const removeSingleFile = () => {
+    setSingleFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleRemoveContent = (index) => {
+    if (window.confirm("Remove this content?")) {
+      setContentData(prev => prev.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleMediaUpload = async (e) => {
     e.preventDefault();
-    const fileList = activeTab === "carousel" ? files : [singleFile];
-    if (fileList.length === 0 || (activeTab === "carousel" && fileList.length < 2)) {
-      alert(activeTab === "carousel" ? "Select 2–10 files" : "Select a file");
+    const fileList = isCarousel ? files : [singleFile];
+    if (fileList.length === 0 || (isCarousel && fileList.length < 2)) {
+      alert(isCarousel ? "Select 2–10 files" : "Select a file");
       return;
     }
 
@@ -169,36 +194,30 @@ function CreatePost() {
       const res = await api.post("/upload", fd);
       const results = Array.isArray(res.data) ? res.data : [res.data];
 
-      // Build uploaded items with title
       const uploaded = results.map(r => ({
         title: title || "",
         type: r.resource_type === "video" ? "video" : "image",
         image: r.resource_type !== "video" ? r.url : null,
         videoUrl: r.resource_type === "video" ? r.url : null,
-        url: r.url,
-        resource_type: r.resource_type
+        url: r.url
       }));
 
-      // For carousel, save all items as one entry
-      if (activeTab === "carousel") {
-        setContentData(prev => [
-          {
-            title: title || "Carousel",
-            type: "carousel",
-            items: uploaded.map(u => ({ type: u.type, url: u.url }))
-          },
-          ...prev
-        ]);
+      if (isCarousel) {
+        setContentData(prev => [{
+          title: title || "Carousel",
+          type: "carousel",
+          items: uploaded.map(u => ({ type: u.type, url: u.url }))
+        }, ...prev]);
       } else {
-        setContentData(prev => [uploaded[0], ...prev]);
+        const itemType = contentType === "story" ? "story" : uploaded[0].type;
+        setContentData(prev => [{ ...uploaded[0], type: itemType }, ...prev]);
       }
 
-      alert("✅ Upload successful! Now click 'Post' button to publish.");
-
-      // Reset form
+      alert("✅ Uploaded!");
       setFiles([]);
       setSingleFile(null);
       setTitle("");
+      if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (err) {
       setErrorMsg("Upload failed: " + (err.response?.data?.error || err.message));
     } finally {
@@ -206,479 +225,557 @@ function CreatePost() {
     }
   };
 
- 
- // POST - Publish to FB/IG based on selected item
- async function handlePost(cont) {
-  try {
-    // ✅ FIX: Move these to the VERY TOP (before any if statements)
-    setErrorMsg("");
-    const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
-    if (!user?._id) {
-      alert("You must be logged in to post. Please login.");
+  const handleTextUpload = async () => {
+    if (!textContent.trim()) {
+      alert("Enter text first!");
       return;
     }
 
-    const resolvedPageId = selectedPage || pages[0]?.pageId || pages[0]?.id;
-    if (!resolvedPageId) {
-      alert("No Page available. Connect Facebook first.");
-      return;
-    }
+    setLoading(true);
+    try {
+      const canvas = canvasRef.current;
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+      
+      const fd = new FormData();
+      fd.append("file", blob, "text-post.png");
 
-    // Validate at least one checkbox is selected
-    if (!postToFB && !postToIG) {
-      alert("Please select at least Facebook or Instagram to post.");
-      return;
-    }
+      const res = await api.post("/upload", fd);
+      const result = Array.isArray(res.data) ? res.data[0] : res.data;
 
-    // Check rate limits before posting to Instagram
-    if (postToIG && rateLimits) {
-      if (rateLimits.quota_usage >= (rateLimits.config?.quota_total || 25)) {
-        alert("❌ Instagram daily post limit reached (25 posts). Try again tomorrow.");
+      setContentData(prev => [{
+        title: textContent.substring(0, 100),
+        type: "image",
+        image: result.url,
+        url: result.url
+      }, ...prev]);
+
+      alert("✅ Text post created!");
+      setTextContent("");
+    } catch (err) {
+      setErrorMsg("Failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  async function handlePost(cont) {
+    try {
+      setErrorMsg("");
+      const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
+      if (!user?._id) {
+        alert("Please login");
         return;
       }
-    }
-    if (cont.type === "story") {
-      // Check if Instagram Business Account is connected
-      const page = pages.find(p => p.pageId === resolvedPageId);
-      if (!page?.instagramBusinessId) {
-        alert("❌ Instagram Business Account required for Stories.\n\nPlease connect your Instagram Business Account first.");
+
+      if (!selectedPage) {
+        alert("Select a page");
         return;
       }
-    
-      // // Show guidelines before posting
-      // const proceed = window.confirm(
-      //   "📖 Instagram Story - Final Check:\n\n" +
-      //   "✓ Stories appear at the top of Instagram feed\n" +
-      //   "✓ Disappear automatically after 24 hours\n" +
-      //   "✓ Best with vertical photos/videos (9:16 ratio)\n" +
-      //   "✓ Max video length: 60 seconds\n\n" +
-      //   "⚠️ This will post to Instagram only\n" +
-      //   "(Facebook doesn't support Stories via API)\n\n" +
-      //   "Post now?"
-      // );
-    
-      // if (!proceed) return;
-    
-      const res = await api.post("/user/story", {
-        userId: user._id,
-        pageId: resolvedPageId,
-        type: cont.mediaType || "image",
-        image: cont.image || null,
-        videoUrl: cont.videoUrl || null
-      });
-    
-      if (res.data.success) {
-        alert(
-          "✅ Instagram Story posted successfully!\n\n" +
-          "⏰ Expires in 24 hours\n\n" +
-          "💡 Tip: Open Instagram app and check the top of your feed to view it."
-        );
-        fetchContent();
-        if (rateLimits) {
+
+      if (cont.type === "story") {
+        const page = pages.find(p => p.pageId === selectedPage);
+        if (!page?.instagramBusinessId) {
+          alert("❌ This page doesn't have Instagram connected.\n\nStories require Instagram Business Account.");
+          return;
+        }
+
+        if (rateLimits && rateLimits.quota_usage >= 25) {
+          alert("Instagram daily limit reached (25 posts)");
+          return;
+        }
+
+        const response = await api.post("/user/story", {
+          userId: user._id,
+          pageId: selectedPage,
+          type: cont.videoUrl ? "video" : "image",
+          image: cont.image || null,
+          videoUrl: cont.videoUrl || null
+        });
+
+        if (response.data.success) {
+          alert("✅ Story posted!");
+          fetchContent();
           setTimeout(() => fetchRateLimits(), 2000);
         }
-      } else {
-        alert("❌ Failed to post story:\n\n" + (res.data.error?.message || res.data.error || "Unknown error"));
+        return;
       }
-      return;
-    }
-    // Handle carousel
-    if (cont.type === "carousel") {
-      const res = await api.post("/user/post", {
-        userId: user._id,
-        pageId: resolvedPageId,
-        title: cont.title || "",
-        type: "carousel",
-        items: cont.items,
-        postToFB,
-        postToIG
-      });
 
-      if (res.data.success) {
-        alert(`✅ Carousel posted!\nFacebook: ${postToFB ? "Yes" : "No"}\nInstagram: ${postToIG ? "Yes" : "No"}`);
+      if (!postToFB && !postToIG) {
+        alert("Select at least one platform");
+        return;
+      }
+
+      if (postToIG && rateLimits && rateLimits.quota_usage >= 25) {
+        alert("Instagram daily limit reached");
+        return;
+      }
+
+      let response;
+
+      if (cont.type === "carousel") {
+        response = await api.post("/user/post", {
+          userId: user._id,
+          pageId: selectedPage,
+          title: cont.title || "",
+          type: "carousel",
+          items: cont.items,
+          postToFB,
+          postToIG
+        });
+      } else {
+        response = await api.post("/user/post", {
+          userId: user._id,
+          pageId: selectedPage,
+          title: cont.title || "",
+          type: cont.type,
+          image: cont.image || null,
+          videoUrl: cont.videoUrl || null,
+          postToFB,
+          postToIG
+        });
+      }
+
+      if (response.data.success) {
+        alert("✅ Posted!");
         fetchContent();
-        if (postToIG) {
-          setTimeout(() => fetchRateLimits(), 2000);
-        }
-      } else {
-        alert("Error: " + JSON.stringify(res.data));
+        if (postToIG) setTimeout(() => fetchRateLimits(), 2000);
       }
-      return;
+    } catch (err) {
+      alert("Failed: " + (err.response?.data?.error || err.message));
     }
-
-    // Handle single post (image/video)
-    const body = {
-      userId: user._id,
-      pageId: resolvedPageId,
-      title: cont.title || "",
-      type: cont.type,
-      image: cont.image || null,
-      videoUrl: cont.videoUrl || null,
-      postToFB,
-      postToIG,
-    };
-
-    console.log("🔍 POSTING WITH TYPE:", cont.type);
-    console.log("🔍 REQUEST BODY:", body);
-
-    const res = await api.post("/user/post", body);
-    
-    if (res.data.success) {
-      alert(`✅ Posted successfully!\nFacebook: ${postToFB ? "Yes" : "No"}\nInstagram: ${postToIG ? "Yes" : "No"}`);
-      fetchContent();
-      if (postToIG) {
-        setTimeout(() => fetchRateLimits(), 2000);
-      }
-    } else {
-      alert("Error: " + JSON.stringify(res.data));
-    }
-  } catch (err) {
-    console.error("Post failed:", err);
-    alert("Post failed: " + (err.response?.data?.error || err.message));
-  }
-}
-
-// CreatePost.jsx - Add story upload handler
-const handleStoryUpload = async (e) => {
-  e.preventDefault();
-  
-  if (!singleFile) {
-    alert("Please select an image or video for your story");
-    return;
   }
 
-  setLoading(true);
-  try {
-    const fd = new FormData();
-    fd.append("file", singleFile);
+  const buildImageUrl = (img) => {
+    if (!img) return "";
+    if (img.startsWith("http")) return img;
+    const base = import.meta.env.VITE_API_URL || "";
+    return base ? `${base.replace(/\/$/, "")}/${img.replace(/^\/+/, "")}` : img;
+  };
 
-    const res = await api.post("/upload", fd);
-    const result = Array.isArray(res.data) ? res.data[0] : res.data;
-
-    const storyItem = {
-      title: "Story",
-      type: "story",
-      mediaType: result.resource_type === "video" ? "video" : "image",
-      image: result.resource_type !== "video" ? result.url : null,
-      videoUrl: result.resource_type === "video" ? result.url : null,
-      url: result.url,
-      resource_type: result.resource_type,
-      uploadedAt: new Date()
-    };
-
-    setContentData(prev => [storyItem, ...prev]);
-    alert("✅ Story uploaded! Click 'Post Story' to publish (expires in 24hrs)");
-
-    // Reset
-    setSingleFile(null);
-  } catch (err) {
-    setErrorMsg("Story upload failed: " + (err.response?.data?.error || err.message));
-  } finally {
-    setLoading(false);
-  }
-};
-
-
-
+  const currentPageHasIG = () => {
+    const page = pages.find(p => p.pageId === selectedPage);
+    return !!page?.instagramBusinessId;
+  };
 
   return (
-    <div className="share-container" style={{ padding: 16, maxWidth: 1100, margin: "0 auto" }}>
-      <h2>Create Post</h2>
-
-      {/* Tab Selection */}
-      <div style={{ marginBottom: 16 }}>
-  <button 
-    onClick={() => setActiveTab("single")} 
-    style={{ 
-      padding: "8px 16px",
-      fontWeight: activeTab === "single" ? "bold" : "normal",
-      background: activeTab === "single" ? "#1976d2" : "#fff",
-      color: activeTab === "single" ? "#fff" : "#000",
-      border: "1px solid #ddd",
-      borderRadius: "4px",
-      cursor: "pointer"
-    }}
-  >
-    Single Post
-  </button>
-  <button 
-    onClick={() => setActiveTab("carousel")} 
-    style={{ 
-      marginLeft: 8,
-      padding: "8px 16px",
-      fontWeight: activeTab === "carousel" ? "bold" : "normal",
-      background: activeTab === "carousel" ? "#1976d2" : "#fff",
-      color: activeTab === "carousel" ? "#fff" : "#000",
-      border: "1px solid #ddd",
-      borderRadius: "4px",
-      cursor: "pointer"
-    }}
-  >
-    Carousel (2–10 items)
-  </button>
-  {/* ✅ NEW: Story Tab */}
-
-<button 
-  onClick={() => {
-    alert(
-      "📖 Instagram Story Guidelines:\n\n" +
-      "• Stories appear at the top of Instagram feed\n" +
-      "• Disappear automatically after 24 hours\n" +
-      "• Best with vertical photos/videos (9:16 ratio)\n" +
-      "• Max video length: 60 seconds\n\n" +
-      "ℹ️ Instagram Only: Facebook doesn't support Stories via API"
-    );
-    setActiveTab("story");
-  }} 
-  style={{ 
-    marginLeft: 8,
-    padding: "8px 16px",
-    fontWeight: activeTab === "story" ? "bold" : "normal",
-    background: activeTab === "story" ? "#9c27b0" : "#fff",
-    color: activeTab === "story" ? "#fff" : "#000",
-    border: "1px solid #ddd",
-    borderRadius: "4px",
-    cursor: "pointer"
-  }}
->
-  📖 Story (24hrs)
-</button>
-
-</div>
-
-      {/* Checkboxes: Where to post? */}
-      <div style={{ marginBottom: 16, padding: 12, background: "#f0f8ff", borderRadius: 8 }}>
-        <strong>Post to:</strong>
-        <label style={{ marginLeft: 16, cursor: "pointer" }}>
-          <input 
-            type="checkbox" 
-            checked={postToFB} 
-            onChange={e => setPostToFB(e.target.checked)} 
-            style={{ marginRight: 6 }}
-          />
-          Facebook
-        </label>
-        <label style={{ marginLeft: 16, cursor: "pointer" }}>
-          <input 
-            type="checkbox" 
-            checked={postToIG} 
-            onChange={e => setPostToIG(e.target.checked)} 
-            style={{ marginRight: 6 }}
-          />
-          Instagram
-        </label>
-      </div>
-
-      {/* ✅ NEW: Rate Limits Display */}
-      {postToIG && rateLimits && (
-        <div style={{ 
-          marginBottom: 16,
-          padding: 12, 
-          background: rateLimits.quota_usage >= 20 ? "#fff3cd" : "#d4edda", 
-          borderRadius: 8,
-          border: `1px solid ${rateLimits.quota_usage >= 20 ? "#ffc107" : "#28a745"}`
-        }}>
-          <strong>📊 Instagram Rate Limit:</strong>
-          <div style={{ marginTop: 6 }}>
-            {rateLimits.quota_usage} / {rateLimits.config?.quota_total || 25} posts used today
-          </div>
-          <div style={{ 
-            width: "100%", 
-            height: 8, 
-            background: "#e0e0e0", 
-            borderRadius: 4, 
-            marginTop: 8,
-            overflow: "hidden"
-          }}>
-            <div style={{ 
-              width: `${(rateLimits.quota_usage / (rateLimits.config?.quota_total || 25)) * 100}%`,
-              height: "100%",
-              background: rateLimits.quota_usage >= 20 ? "#ffc107" : "#28a745",
-              transition: "width 0.3s"
-            }} />
-          </div>
-          {rateLimits.quota_usage >= 20 && (
-            <div style={{ color: "#856404", fontSize: 12, marginTop: 6 }}>
-              ⚠️ Warning: Close to daily limit
-            </div>
-          )}
+    <div className="create-post-wrapper">
+      {/* Left Panel */}
+      <div className="left-panel">
+        <div className="panel-header">
+          <h2>✨ Create Content</h2>
         </div>
-      )}
 
-      {loadingLimits && (
-        <div style={{ marginBottom: 16, color: "#666", fontSize: 14, padding: 12, background: "#f9f9f9", borderRadius: 8 }}>
-          Loading rate limits...
+        {/* Content Type Tabs */}
+        <div className="content-tabs">
+          <button
+            className={contentType === "media" ? "active" : ""}
+            onClick={() => setContentType("media")}
+          >
+            <span>📸</span> Media
+          </button>
+          <button
+            className={contentType === "text" ? "active" : ""}
+            onClick={() => setContentType("text")}
+          >
+            <span>📝</span> Text
+          </button>
+          <button
+            className={contentType === "story" ? "active" : ""}
+            onClick={() => setContentType("story")}
+          >
+            <span>📖</span> Story
+          </button>
         </div>
-      )}
 
-      {errorMsg && <div style={{ color: "red", marginBottom: 12, padding: 12, background: "#fee", borderRadius: 6 }}>{errorMsg}</div>}
+        {/* Platform Selection - Only for Media & Text */}
+        {contentType !== "story" && (
+          <div className="platform-box">
+            <h3>📱 Select Platforms</h3>
 
-      {/* Upload Form */}
-      <form onSubmit={activeTab === "story" ? handleStoryUpload : handleUpload} style={{ marginBottom: 30, padding: 20, background: "#f9f9f9", borderRadius: 8 }}>
-      {activeTab === "story" && (
-  <div style={{ marginBottom: 12, padding: 12, background: "#f3e5f5", borderRadius: 6, border: "1px solid #9c27b0" }}>
-    <div style={{ display: "flex", alignItems: "center" }}>
-      <span style={{ fontSize: 20, marginRight: 8 }}>📖</span>
-      <strong>Instagram Story Mode</strong>
-    </div>
-  </div>
-)}
+            <label className={`platform-option ${postToFB ? "active" : ""}`}>
+              <input
+                type="checkbox"
+                checked={postToFB}
+                onChange={(e) => setPostToFB(e.target.checked)}
+              />
+              <span className="icon">📘</span>
+              <span>Facebook Post</span>
+            </label>
 
-  {activeTab !== "story" && (
-    <input
-      type="text"
-      placeholder="Caption (optional)"
-      value={title}
-      onChange={e => setTitle(e.target.value)}
-      style={{ width: "100%", padding: 10, marginBottom: 12, border: "1px solid #ddd", borderRadius: 4 }}
-    />
-  )}
+            {postToFB && pages.length > 0 && (
+              <select
+                value={selectedPage}
+                onChange={(e) => handlePageChange(e.target.value)}
+                className="page-select"
+              >
+                {pages.map((page) => (
+                  <option key={page.pageId} value={page.pageId}>
+                    {page.pageName} {page.instagramBusinessId ? "📸" : ""}
+                  </option>
+                ))}
+              </select>
+            )}
 
-  <input
-    type="file"
-    accept="image/*,video/*"
-    multiple={activeTab === "carousel"}
-    onChange={handleFileChange}
-    style={{ marginBottom: 12 }}
-  />
+            <label
+              className={`platform-option ${postToIG ? "active" : ""} ${
+                !postToFB || !currentPageHasIG() ? "disabled" : ""
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={postToIG}
+                disabled={!postToFB || !currentPageHasIG()}
+                onChange={(e) => {
+                  if (!currentPageHasIG()) {
+                    alert("❌ Selected page doesn't have Instagram connected");
+                    return;
+                  }
+                  setPostToIG(e.target.checked);
+                }}
+              />
+              <span className="icon">📸</span>
+              <span>Instagram Post</span>
+              {!postToFB && <small>Select Facebook first</small>}
+              {postToFB && !currentPageHasIG() && <small>No IG linked</small>}
+            </label>
 
-        {activeTab === "carousel" && files.length > 0 && (
-          <div style={{ marginBottom: 12, padding: 10, background: "#fff", borderRadius: 6 }}>form onSubmit
-            <strong>Selected ({files.length}/10):</strong>
-            {files.map((f, i) => (
-              <div key={i} style={{ marginTop: 6, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{f.name} ({f.type.startsWith("video") ? "Video" : "Image"})</span>
-                <button 
-                  type="button" 
-                  onClick={() => removeFile(i)} 
-                  style={{ padding: "4px 8px", background: "#f44336", color: "white", border: "none", borderRadius: 4, cursor: "pointer" }}
-                >
-                  Remove
-                </button>
+            {postToIG && rateLimits && (
+              <div className="rate-info">
+                <span>
+                  📊 Instagram: {rateLimits.quota_usage}/25 posts today
+                </span>
+                <div className="rate-bar">
+                  <div
+                    style={{ width: `${(rateLimits.quota_usage / 25) * 100}%` }}
+                  />
+                </div>
               </div>
-            ))}
+            )}
           </div>
         )}
 
-        {activeTab === "single" && singleFile && (
-          <div style={{ marginBottom: 12, padding: 10, background: "#fff", borderRadius: 6 }}>
-            <strong>Selected:</strong> {singleFile.name}
-          </div>
-        )}
+        {/* Story Settings */}
+        {contentType === "story" && (
+          <div className="platform-box story-platform">
+            <h3>📖 Instagram Story</h3>
+            <div className="story-info-box">
+              <span className="story-icon">📸</span>
+              <div>
+                <p>
+                  <strong>Instagram Only</strong>
+                </p>
+                <small>
+                  Stories post to Instagram via your Facebook page's connected
+                  account
+                </small>
+              </div>
+            </div>
 
-<button 
-    type="submit" 
-    disabled={loading} 
-    style={{ 
-      padding: "12px 24px", 
-      fontSize: 16, 
-      background: loading ? "#ccc" : activeTab === "story" ? "#9c27b0" : "#4caf50", 
-      color: "white", 
-      border: "none", 
-      borderRadius: 6, 
-      cursor: loading ? "not-allowed" : "pointer",
-      fontWeight: "600"
-    }}
-  >
-    {loading ? "Uploading..." : activeTab === "story" ? "Upload Story" : activeTab === "carousel" ? "Upload Carousel" : "Upload"}
-  </button>
-</form>
+            {pages.length > 0 && (
+              <>
+                <label className="page-label">Select Facebook Page</label>
+                <select
+                  value={selectedPage}
+                  onChange={(e) => handlePageChange(e.target.value)}
+                  className="page-select"
+                >
+                  {pages.map((page) => (
+                    <option key={page.pageId} value={page.pageId}>
+                      {page.pageName} {page.instagramBusinessId ? "✅" : "❌"}
+                    </option>
+                  ))}
+                </select>
 
-      {/* Uploaded Content - Ready to Post */}
-      <div style={{ marginTop: 30 }}>
-        <h3>Uploaded Content (Click Post to Publish)</h3>
-        {contentData.length === 0 ? (
-          <div style={{ color: "#666", padding: 20, textAlign: "center", background: "#f9f9f9", borderRadius: 8 }}>
-            No uploaded content yet. Upload files above first.
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-            {contentData.map((cont, idx) => (
-              <div key={idx} style={{ border: "1px solid #ddd", padding: 12, width: 280, borderRadius: 8, background: "#fff", boxShadow: "0 2px 4px rgba(0,0,0,0.1)" }}>
-                {/* Preview */}
-                {cont.type === "carousel" ? (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ 
-                      padding: "4px 8px", 
-                      background: "#e3f2fd", 
-                      borderRadius: 4, 
-                      display: "inline-block", 
-                      fontSize: 12, 
-                      fontWeight: "600",
-                      marginBottom: 8
-                    }}>
-                      Carousel ({cont.items?.length} items)
-                    </div>
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                      {cont.items?.slice(0, 4).map((item, i) => (
-                        <img 
-                          key={i} 
-                          src={item.url} 
-                          alt={`item-${i}`}
-                          style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 4 }}
-                        />
-                      ))}
-                      {cont.items?.length > 4 && (
-                        <div style={{ width: 60, height: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "#f0f0f0", borderRadius: 4, fontSize: 12 }}>
-                          +{cont.items.length - 4}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ width: "100%", height: 150, overflow: "hidden", borderRadius: 6, marginBottom: 10 }}>
-                    {cont.type === "video" ? (
-                      <video
-                        controls
-                        src={buildImageUrl(cont.videoUrl || cont.image)}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                      />
-                    ) : (
-                      <img
-                        src={buildImageUrl(cont.image)}
-                        alt={cont.title || "image"}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                      />
-                    )}
+                {!currentPageHasIG() && (
+                  <div className="warning-box">
+                    ⚠️ Selected page has no Instagram. Connect Instagram first.
                   </div>
                 )}
 
-                <div style={{ marginBottom: 12, minHeight: 40, fontSize: 14 }}>
-                  {cont.title ? (
-                    <strong>{cont.title}</strong>
+                {currentPageHasIG() && rateLimits && (
+                  <div className="rate-info">
+                    <span>📊 {rateLimits.quota_usage}/25 posts today</span>
+                    <div className="rate-bar">
+                      <div
+                        style={{
+                          width: `${(rateLimits.quota_usage / 25) * 100}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Upload Area */}
+        <div className="upload-area">
+          {contentType === "media" && (
+            <form onSubmit={handleMediaUpload}>
+              <label className="carousel-check">
+                <input
+                  type="checkbox"
+                  checked={isCarousel}
+                  onChange={(e) => {
+                    setIsCarousel(e.target.checked);
+                    setFiles([]);
+                    setSingleFile(null);
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                  }}
+                />
+                <span>Carousel (2-10 items)</span>
+              </label>
+
+              <input
+                type="text"
+                placeholder="Caption (optional)..."
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="caption-field"
+              />
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple={isCarousel}
+                onChange={handleFileChange}
+                className="file-input"
+              />
+
+              {isCarousel && files.length > 0 && (
+                <div className="file-list">
+                  {files.map((f, i) => (
+                    <div key={i} className="file-tag">
+                      <span>
+                        {i + 1}. {f.name}
+                      </span>
+                      <button type="button" onClick={() => removeFile(i)}>
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!isCarousel && singleFile && (
+                <div className="file-list">
+                  <div className="file-tag">
+                    {singleFile.name}
+                    <button type="button" onClick={removeSingleFile}>
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <button type="submit" disabled={loading} className="upload-btn">
+                {loading ? "⏳ Uploading..." : "📤 Upload"}
+              </button>
+            </form>
+          )}
+
+          {contentType === "text" && (
+            <div className="text-creator">
+              <textarea
+                value={textContent}
+                onChange={(e) => setTextContent(e.target.value)}
+                placeholder="Type your text..."
+                className="text-area"
+              />
+
+              <div className="text-tools">
+                <select
+                  value={fontFamily}
+                  onChange={(e) => setFontFamily(e.target.value)}
+                >
+                  {fonts.map((f) => (
+                    <option key={f}>{f}</option>
+                  ))}
+                </select>
+
+                <input
+                  type="range"
+                  min="24"
+                  max="100"
+                  value={fontSize}
+                  onChange={(e) => setFontSize(Number(e.target.value))}
+                  title={`Size: ${fontSize}px`}
+                />
+
+                <input
+                  type="color"
+                  value={textColor}
+                  onChange={(e) => setTextColor(e.target.value)}
+                  title="Text color"
+                />
+              </div>
+
+              <div className="style-btns">
+                <button
+                  className={fontWeight === "bold" ? "active" : ""}
+                  onClick={() =>
+                    setFontWeight(fontWeight === "bold" ? "600" : "bold")
+                  }
+                >
+                  B
+                </button>
+                <button
+                  className={textAlign === "left" ? "active" : ""}
+                  onClick={() => setTextAlign("left")}
+                >
+                  ⬅
+                </button>
+                <button
+                  className={textAlign === "center" ? "active" : ""}
+                  onClick={() => setTextAlign("center")}
+                >
+                  ↔
+                </button>
+                <button
+                  className={textAlign === "right" ? "active" : ""}
+                  onClick={() => setTextAlign("right")}
+                >
+                  ➡
+                </button>
+              </div>
+
+              <div className="gradient-grid">
+                {gradients.map((g) => (
+                  <button
+                    key={g.name}
+                    onClick={() => setBackgroundGradient(g)}
+                    style={{
+                      background: `linear-gradient(135deg, ${g.c1}, ${g.c2})`,
+                    }}
+                    title={g.name}
+                  />
+                ))}
+              </div>
+
+              <canvas ref={canvasRef} className="text-preview" />
+
+              <button
+                onClick={handleTextUpload}
+                disabled={loading}
+                className="upload-btn"
+              >
+                {loading ? "⏳ Creating..." : "✨ Create Text Post"}
+              </button>
+            </div>
+          )}
+
+          {contentType === "story" && (
+            <form onSubmit={handleMediaUpload}>
+              <div className="story-hint">
+                <span>📖</span>
+                <div>
+                  <p>
+                    <strong>Story Requirements</strong>
+                  </p>
+                  <small>
+                    • Vertical (9:16) recommended
+                    <br />• Expires in 24 hours
+                    <br />• Image or Video
+                  </small>
+                </div>
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                onChange={handleFileChange}
+                className="file-input"
+              />
+
+              {singleFile && (
+                <div className="file-list">
+                  <div className="file-tag">
+                    {singleFile.name}
+                    <button type="button" onClick={removeSingleFile}>
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || !currentPageHasIG()}
+                className="upload-btn"
+              >
+                {loading
+                  ? "⏳ Uploading..."
+                  : !currentPageHasIG()
+                  ? "⚠️ No Instagram"
+                  : "📤 Upload Story"}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+
+      {/* Right Panel */}
+      <div className="right-panel">
+        <div className="panel-header">
+          <h3>📂 Uploaded Content</h3>
+          <span className="count">{contentData.length}</span>
+        </div>
+
+        <div className="content-scroll">
+          {contentData.length === 0 ? (
+            <div className="empty">No content yet. Upload something!</div>
+          ) : (
+            contentData.map((cont, idx) => (
+              <div key={idx} className="post-card">
+                <button
+                  className="del-btn"
+                  onClick={() => handleRemoveContent(idx)}
+                >
+                  ✕
+                </button>
+
+                <div className="card-preview">
+                  {cont.type === "carousel" ? (
+                    <div className="carousel-grid">
+                      {cont.items?.map((item, i) => (
+                        <div
+                          key={i}
+                          className="carousel-item"
+                          data-index={i + 1}
+                        >
+                          {item.type === "video" ? (
+                            <video src={item.url} />
+                          ) : (
+                            <img src={item.url} alt="" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : cont.type === "video" || cont.videoUrl ? (
+                    <video src={buildImageUrl(cont.videoUrl || cont.image)} />
                   ) : (
-                    <span style={{ color: "#999" }}>(no caption)</span>
+                    <img src={buildImageUrl(cont.image)} alt="" />
                   )}
                 </div>
 
-                {/* Single POST Button */}
-                <button 
-                  onClick={() => handlePost(cont)}
-                  style={{
-                    width: "100%",
-                    padding: "10px",
-                    background: "#1976d2",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 6,
-                    cursor: "pointer",
-                    fontSize: 15,
-                    fontWeight: "600"
-                  }}
-                  onMouseOver={e => e.target.style.background = "#1565c0"}
-                  onMouseOut={e => e.target.style.background = "#1976d2"}
-                >
-                  📤 Post {postToFB && postToIG ? "(FB + IG)" : postToFB ? "(FB)" : postToIG ? "(IG)" : ""}
-                </button>
-
-                <div style={{ marginTop: 8, fontSize: 11, color: "#666", textAlign: "center" }}>
-                  Will post to: {postToFB ? "Facebook " : ""}{postToFB && postToIG ? "+ " : ""}{postToIG ? "Instagram" : ""}
-                  {!postToFB && !postToIG && <span style={{ color: "#f44336" }}>⚠️ Select a platform above</span>}
+                <div className="card-info">
+                  <p>{cont.title || "(no caption)"}</p>
+                  <span className="badge">{cont.type}</span>
                 </div>
+
+                <button
+                  onClick={() => handlePost(cont)}
+                  className="post-now-btn"
+                >
+                  {cont.type === "story" ? "📖 Post Story" : "🚀 Post Now"}
+                </button>
               </div>
-            ))}
-          </div>
-        )}
+            ))
+          )}
+        </div>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import api from "./api";
-import "./autopost.css";
+import "./postshistory.css";
 
 function PostsHistory() {
   const [posts, setPosts] = useState([]);
@@ -8,6 +8,15 @@ function PostsHistory() {
   const [error, setError] = useState("");
   const [pages, setPages] = useState([]);
   const [filter, setFilter] = useState("all");
+  
+  const [showRepostModal, setShowRepostModal] = useState(false);
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [newCaption, setNewCaption] = useState("");
+  const [postToFB, setPostToFB] = useState(true);
+  const [postToIG, setPostToIG] = useState(true);
+  const [reposting, setReposting] = useState(false);
+  const [selectedPage, setSelectedPage] = useState(""); 
+  const [postToStory, setPostToStory] = useState(false); 
 
   useEffect(() => {
     loadPosts();
@@ -50,81 +59,121 @@ function PostsHistory() {
     }
   }
 
-  // ✅ NEW: Repost function
-  async function handleRepost(post) {
-    const confirmMsg = post.type === "story"
-      ? `Repost this story?\n\nThis will create a new Instagram Story (expires in 24hrs)`
-      : `Repost this ${post.type}?\n\nTitle: ${post.title || 'No title'}\nType: ${post.type}\n\nThis will create a new post with the same content.`;
+  function openRepostModal(post) {
+    setSelectedPost(post);
+    setNewCaption(post.title || "");
     
-    if (!window.confirm(confirmMsg)) return;
+    const initialPage = post.pageId || (pages.length > 0 ? pages[0].pageId : "");
+    setSelectedPage(initialPage);
+    
+    const pageHasIG = pages.find(p => p.pageId === initialPage)?.instagramBusinessId;
+    
+    setPostToFB(!!post.fbPostId);
+    setPostToIG(!!post.igMediaId && pageHasIG);
+    setPostToStory(false);
+    setShowRepostModal(true);
+  }
 
+  function closeRepostModal() {
+    setShowRepostModal(false);
+    setSelectedPost(null);
+    setNewCaption("");
+    setPostToFB(true);
+    setPostToIG(true);
+    setPostToStory(false);
+    setSelectedPage("");
+    setReposting(false);
+  }
+
+  async function handleRepostSubmit() {
+    if (!selectedPost) return;
+  
+    const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
+    if (!user?._id) {
+      alert("❌ You must be logged in to repost");
+      return;
+    }
+  
+    if (!postToFB && !postToIG && !postToStory) {
+      alert("❌ Please select at least one platform");
+      return;
+    }
+  
+    if (!selectedPage) {
+      alert("❌ Please select a Facebook page");
+      return;
+    }
+  
+    setReposting(true);
+  
     try {
-      const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
-      if (!user?._id) {
-        alert("❌ You must be logged in to repost");
-        return;
-      }
-
-      const postToFB = !!post.fbPostId;
-      const postToIG = !!post.igMediaId;
-
       let response;
-
-      if (post.type === "story") {
+  
+      if (postToStory) {
+        const page = pages.find(p => p.pageId === selectedPage);
+        if (!page?.instagramBusinessId) {
+          alert("❌ Selected page doesn't have Instagram connected.\n\nPlease select a page with Instagram or connect Instagram first.");
+          setReposting(false);
+          return;
+        }
+  
         response = await api.post("/user/story", {
           userId: user._id,
-          pageId: post.pageId,
-          type: post.videoUrl ? "video" : "image",
-          image: post.image || null,
-          videoUrl: post.videoUrl || null
+          pageId: selectedPage,
+          type: selectedPost.videoUrl ? "video" : "image",
+          image: selectedPost.image || null,
+          videoUrl: selectedPost.videoUrl || null
         });
-      } else if (post.type === "carousel") {
+      }
+      else if (selectedPost.type === "story") {
+        response = await api.post("/user/story", {
+          userId: user._id,
+          pageId: selectedPage,
+          type: selectedPost.videoUrl ? "video" : "image",
+          image: selectedPost.image || null,
+          videoUrl: selectedPost.videoUrl || null
+        });
+      }
+      else if (selectedPost.type === "carousel") {
         response = await api.post("/user/post", {
           userId: user._id,
-          pageId: post.pageId,
-          title: post.title || "",
+          pageId: selectedPage,
+          title: newCaption,
           type: "carousel",
-          items: post.items,
-          postToFB,
-          postToIG
-        });
-      } else {
-        response = await api.post("/user/post", {
-          userId: user._id,
-          pageId: post.pageId,
-          title: post.title || "",
-          type: post.type,
-          image: post.image || null,
-          videoUrl: post.videoUrl || null,
+          items: selectedPost.items,
           postToFB,
           postToIG
         });
       }
-
+      else {
+        response = await api.post("/user/post", {
+          userId: user._id,
+          pageId: selectedPage,
+          title: newCaption,
+          type: selectedPost.type,
+          image: selectedPost.image || null,
+          videoUrl: selectedPost.videoUrl || null,
+          postToFB,
+          postToIG
+        });
+      }
+  
       if (response.data.success) {
-        alert(`✅ ${post.type === 'story' ? 'Story' : 'Post'} reposted successfully!`);
+        const postType = postToStory || selectedPost.type === 'story' ? 'Story' : 'Post';
+        alert(`✅ ${postType} reposted successfully!`);
         loadPosts();
+        closeRepostModal();
       } else {
         alert("❌ Failed to repost: " + JSON.stringify(response.data));
       }
     } catch (err) {
       console.error("Repost failed:", err);
       alert("❌ Repost failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setReposting(false);
     }
   }
-
-  // ✅ NEW: Edit function
-  function handleEdit(post) {
-    alert(
-      "📝 Edit Feature Coming Soon!\n\n" +
-      "This will allow you to edit:\n" +
-      "• Title/Caption\n" +
-      "• Scheduled time\n" +
-      "• Target platforms\n\n" +
-      "For now, use Repost to post the same content again."
-    );
-  }
-
+  
   function getPageName(pageId) {
     const page = pages.find(p => p.pageId === pageId);
     return page?.pageName || pageId;
@@ -148,121 +197,55 @@ function PostsHistory() {
 
     if (post.type === "story") {
       return (
-        <div style={{ display: "flex", gap: "5px", alignItems: "center" }}>
-          <span style={{
-            padding: "4px 8px",
-            borderRadius: "12px",
-            fontSize: "11px",
-            background: "linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)",
-            color: "#fff",
-            fontWeight: "600"
-          }}>
-            Instagram Story
-          </span>
-          <span style={{ fontSize: "11px", color: "#999" }}>(24hrs)</span>
+        <div className="posted-to-container">
+          <span className="platform-badge story-badge">Instagram Story</span>
+          <span className="story-duration">(24hrs)</span>
         </div>
       );
     }
 
     if (hasFB && hasIG) {
       return (
-        <div style={{ display: "flex", gap: "5px", alignItems: "center" }}>
-          <span style={{
-            padding: "4px 8px",
-            borderRadius: "12px",
-            fontSize: "11px",
-            backgroundColor: "#1877f2",
-            color: "#fff",
-            fontWeight: "600"
-          }}>
-            Facebook
-          </span>
-          <span style={{
-            padding: "4px 8px",
-            borderRadius: "12px",
-            fontSize: "11px",
-            background: "linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)",
-            color: "#fff",
-            fontWeight: "600"
-          }}>
-            Instagram
-          </span>
+        <div className="posted-to-container">
+          <span className="platform-badge fb-badge">Facebook</span>
+          <span className="platform-badge ig-badge">Instagram</span>
         </div>
       );
     }
     
     if (hasFB) {
-      return (
-        <span style={{
-          padding: "4px 8px",
-          borderRadius: "12px",
-          fontSize: "11px",
-          backgroundColor: "#1877f2",
-          color: "#fff",
-          fontWeight: "600"
-        }}>
-          Facebook
-        </span>
-      );
+      return <span className="platform-badge fb-badge">Facebook</span>;
     }
     
     if (hasIG) {
-      return (
-        <span style={{
-          padding: "4px 8px",
-          borderRadius: "12px",
-          fontSize: "11px",
-          background: "linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)",
-          color: "#fff",
-          fontWeight: "600"
-        }}>
-          Instagram
-        </span>
-      );
+      return <span className="platform-badge ig-badge">Instagram</span>;
     }
 
-    return <span style={{ color: "#999" }}>-</span>;
+    return <span className="no-platform">-</span>;
   }
 
   function renderMediaPreview(post) {
     if (post.type === "carousel" && post.items?.length) {
       return (
-        <div style={{ display: "flex", gap: "5px", flexWrap: "wrap" }}>
+        <div className="carousel-preview">
           {post.items.slice(0, 3).map((item, i) => (
-            <img 
-              key={i} 
-              src={item.url} 
-              alt={`item-${i}`}
-              style={{ width: "50px", height: "50px", objectFit: "cover", borderRadius: "4px" }}
-            />
+            <img key={i} src={item.url} alt={`item-${i}`} className="carousel-thumb" />
           ))}
           {post.items.length > 3 && <span>+{post.items.length - 3} more</span>}
         </div>
       );
     }
     if (post.type === "image" && post.image) {
-      return <img src={post.image} alt="post" style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "4px" }} />;
+      return <img src={post.image} alt="post" className="media-preview" />;
     }
     if ((post.type === "video" || post.type === "story") && post.videoUrl) {
-      return <video src={post.videoUrl} style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "4px" }} />;
+      return <video src={post.videoUrl} className="media-preview" />;
     }
     if (post.type === "story" && post.image) {
       return (
-        <div style={{ position: "relative" }}>
-          <img src={post.image} alt="story" style={{ width: "60px", height: "60px", objectFit: "cover", borderRadius: "4px" }} />
-          <span style={{
-            position: "absolute",
-            top: "2px",
-            right: "2px",
-            background: "#9c27b0",
-            color: "white",
-            fontSize: "10px",
-            padding: "2px 4px",
-            borderRadius: "3px",
-            fontWeight: "600"
-          }}>
-            📖
-          </span>
+        <div className="story-preview-wrapper">
+          <img src={post.image} alt="story" className="media-preview" />
+          <span className="story-icon-badge">📖</span>
         </div>
       );
     }
@@ -278,51 +261,29 @@ function PostsHistory() {
   if (loading) return <div className="loading">Loading posts...</div>;
   if (error) return <div className="error">{error}</div>;
 
+  
+
   return (
-    <div style={{ padding: "20px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+    <div className="posts-history-container">
+      <div className="posts-header">
         <h2>Posts History</h2>
         
-        <div style={{ display: "flex", gap: "10px" }}>
+        <div className="filter-buttons">
           <button
             onClick={() => setFilter("all")}
-            style={{
-              padding: "8px 16px",
-              background: filter === "all" ? "#1976d2" : "#fff",
-              color: filter === "all" ? "#fff" : "#333",
-              border: "1px solid #ddd",
-              borderRadius: "6px",
-              cursor: "pointer",
-              fontWeight: filter === "all" ? "600" : "normal"
-            }}
+            className={`filter-btn ${filter === "all" ? "active" : ""}`}
           >
             All ({posts.length})
           </button>
           <button
             onClick={() => setFilter("regular")}
-            style={{
-              padding: "8px 16px",
-              background: filter === "regular" ? "#1976d2" : "#fff",
-              color: filter === "regular" ? "#fff" : "#333",
-              border: "1px solid #ddd",
-              borderRadius: "6px",
-              cursor: "pointer",
-              fontWeight: filter === "regular" ? "600" : "normal"
-            }}
+            className={`filter-btn ${filter === "regular" ? "active" : ""}`}
           >
             Posts ({posts.filter(p => p.type !== "story").length})
           </button>
           <button
             onClick={() => setFilter("stories")}
-            style={{
-              padding: "8px 16px",
-              background: filter === "stories" ? "#9c27b0" : "#fff",
-              color: filter === "stories" ? "#fff" : "#333",
-              border: "1px solid #ddd",
-              borderRadius: "6px",
-              cursor: "pointer",
-              fontWeight: filter === "stories" ? "600" : "normal"
-            }}
+            className={`filter-btn filter-stories ${filter === "stories" ? "active" : ""}`}
           >
             📖 Stories ({posts.filter(p => p.type === "story").length})
           </button>
@@ -330,106 +291,73 @@ function PostsHistory() {
       </div>
 
       {filteredPosts.length === 0 ? (
-        <p>No {filter === "stories" ? "stories" : filter === "regular" ? "posts" : "content"} yet.</p>
+        <p className="no-content">No {filter === "stories" ? "stories" : filter === "regular" ? "posts" : "content"} yet.</p>
       ) : (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "20px" }}>
+        <div className="table-wrapper">
+          <table className="posts-table">
             <thead>
-              <tr style={{ backgroundColor: "#f0f0f0", textAlign: "left" }}>
-                <th style={thStyle}>Preview</th>
-                <th style={thStyle}>Title</th>
-                <th style={thStyle}>Type</th>
-                <th style={thStyle}>Page</th>
-                <th style={thStyle}>Posted To</th>
-                <th style={thStyle}>Posted At</th>
-                <th style={thStyle}>View</th>
-                <th style={thStyle}>Actions</th>
+              <tr>
+                <th>Preview</th>
+                <th>Title</th>
+                <th>Type</th>
+                <th>Page</th>
+                <th>Posted To</th>
+                <th>Posted At</th>
+                <th>View</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredPosts.map(post => (
-                <tr key={post._id} style={{ borderBottom: "1px solid #ddd" }}>
-                  <td style={tdStyle}>{renderMediaPreview(post)}</td>
-                  <td style={tdStyle}>{post.title || "-"}</td>
-                  <td style={tdStyle}>
-                    <span style={{
-                      padding: "2px 8px",
-                      borderRadius: "12px",
-                      fontSize: "12px",
-                      backgroundColor: 
-                        post.type === "story" ? "#f3e5f5" :
-                        post.type === "carousel" ? "#e3f2fd" : 
-                        post.type === "video" ? "#fff3e0" : "#e8f5e9",
-                      color: "#333",
-                      fontWeight: post.type === "story" ? "600" : "normal"
-                    }}>
+                <tr key={post._id}>
+                  <td>{renderMediaPreview(post)}</td>
+                  <td>{post.title || "-"}</td>
+                  <td>
+                    <span className={`type-badge ${post.type === "story" ? "type-story" : post.type === "carousel" ? "type-carousel" : post.type === "video" ? "type-video" : "type-image"}`}>
                       {post.type === "story" ? "📖 Story" : post.type}
                     </span>
                   </td>
-                  <td style={tdStyle}>{getPageName(post.pageId)}</td>
-                  <td style={tdStyle}>{renderPostedTo(post)}</td>
-                  <td style={tdStyle}>{formatDate(post.postedAt)}</td>
-                  <td style={tdStyle}>
+                  <td>{getPageName(post.pageId)}</td>
+                  <td>{renderPostedTo(post)}</td>
+                  <td>{formatDate(post.postedAt)}</td>
+                  <td>
                     {post.type === "story" ? (
-                      <span style={{ color: "#999", fontSize: "12px" }}>Expired</span>
+                      (() => {
+                        const createdAt = new Date(post.createdAt || post.postedAt);
+                        const now = new Date();
+                        
+                        if (isNaN(createdAt.getTime())) {
+                          return <span className="story-status expired">⏰ Expired</span>;
+                        }
+                        
+                        const hoursElapsed = (now - createdAt) / (1000 * 60 * 60);
+                        const isExpired = hoursElapsed >= 24;
+
+                        if (isExpired) {
+                          return <span className="story-status expired">⏰ Expired</span>;
+                        } else {
+                          const hoursLeft = Math.floor(24 - hoursElapsed);
+                          return <span className="story-status active">✓ Active ({hoursLeft}h left)</span>;
+                        }
+                      })()
                     ) : getPostUrl(post) ? (
-                      <a href={getPostUrl(post)} target="_blank" rel="noopener noreferrer" style={{ color: "#1976d2" }}>
-                        View Post
+                      <a href={getPostUrl(post)} target="_blank" rel="noopener noreferrer" className="view-link">
+                        View Post →
                       </a>
-                    ) : "-"}
+                    ) : (
+                      <span className="no-view">-</span>
+                    )}
                   </td>
-                  <td style={tdStyle}>
-                    <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                      <button
-                        onClick={() => handleRepost(post)}
-                        style={{
-                          padding: "6px 12px",
-                          backgroundColor: "#2b81f1",
-                          color: "white",
-                          border: "none",
-                          borderRadius: "4px",
-                          cursor: "pointer",
-                          fontSize: "13px",
-                          fontWeight: "500"
-                        }}
-                        onMouseOver={e => e.target.style.backgroundColor = "#1877f2"}
-                        onMouseOut={e => e.target.style.backgroundColor = "#2b81f1"}
-                      >
-                        🔄 Repost
+                  <td>
+                    <div className="action-buttons">
+                      <button onClick={() => openRepostModal(post)} className="btn-repost">
+                        <span className="btn-icon">🔄</span>
+                        Repost
                       </button>
-                      <button
-                        onClick={() => handleEdit(post)}
-                        style={{
-                          padding: "6px 12px",
-                          backgroundColor: "#dc2743",
-                          color: "white",
-                          border: "none",
-                          borderRadius: "4px",
-                          cursor: "pointer",
-                          fontSize: "13px",
-                          fontWeight: "500"
-                        }}
-                        onMouseOver={e => e.target.style.backgroundColor = "#cc2366"}
-                        onMouseOut={e => e.target.style.backgroundColor = "#dc2743"}
-                      >
-                        ✏️ Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(post._id)}
-                        style={{
-                          padding: "6px 12px",
-                          backgroundColor: "#f44336",
-                          color: "white",
-                          border: "none",
-                          borderRadius: "4px",
-                          cursor: "pointer",
-                          fontSize: "13px",
-                          fontWeight: "500"
-                        }}
-                        onMouseOver={e => e.target.style.backgroundColor = "#d32f2f"}
-                        onMouseOut={e => e.target.style.backgroundColor = "#f44336"}
-                      >
-                        🗑️ Delete
+                      
+                      <button onClick={() => handleDelete(post._id)} className="btn-delete">
+                        <span className="btn-icon">🗑️</span>
+                        Delete
                       </button>
                     </div>
                   </td>
@@ -439,19 +367,220 @@ function PostsHistory() {
           </table>
         </div>
       )}
+
+      {/* REPOST MODAL */}
+      {showRepostModal && selectedPost && (
+        <div className="modal-overlay">
+          <div className="modal-gradient-border">
+            <div className="modal-content">
+              {/* Header */}
+              <div className="modal-header">
+                <h2 className="modal-title">🔄 Repost Content</h2>
+                <button onClick={closeRepostModal} className="modal-close">×</button>
+              </div>
+
+              {/* Preview */}
+              <div className="modal-preview">
+                <div>{renderMediaPreview(selectedPost)}</div>
+                <div className="preview-info">
+                  <div className="preview-type">
+                    {selectedPost.type === "story" ? "📖 Story" : selectedPost.type}
+                  </div>
+                  <div className="preview-title">
+                    {selectedPost.title || "(No caption)"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Caption Editor */}
+              {selectedPost.type !== "story" && (
+                <div className="caption-editor">
+                  <label className="editor-label">✏️ Edit Caption</label>
+                  <textarea
+                    value={newCaption}
+                    onChange={e => setNewCaption(e.target.value)}
+                    placeholder="Enter your caption here..."
+                    className="caption-textarea"
+                  />
+                </div>
+              )}
+
+              {/* Platform Selection */}
+              {selectedPost.type !== "story" && (
+                <div className="platform-selection">
+                  <label className="selection-label">📱 Select Where to Post</label>
+                  
+                  {/* Facebook Checkbox */}
+                  <label className={`platform-checkbox ${postToFB ? "checked" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={postToFB}
+                      onChange={e => {
+                        setPostToFB(e.target.checked);
+                        if (!e.target.checked) {
+                          const currentPage = pages.find(p => p.pageId === selectedPage);
+                          if (!currentPage?.instagramBusinessId) {
+                            setPostToIG(false);
+                          }
+                        }
+                      }}
+                    />
+                    <span className="platform-icon">📘</span>
+                    <span className="platform-name">Facebook Post</span>
+                  </label>
+
+                  {/* Page Selection */}
+                  {postToFB && pages.length > 0 && (
+                    <div className="page-selector">
+                      <label className="page-label">Select Facebook Page</label>
+                      <select
+                        value={selectedPage}
+                        onChange={e => {
+                          const newPageId = e.target.value;
+                          setSelectedPage(newPageId);
+                          
+                          const newPage = pages.find(p => p.pageId === newPageId);
+                          if (!newPage?.instagramBusinessId && postToIG) {
+                            setPostToIG(false);
+                            setTimeout(() => {
+                              alert(`ℹ️ This page doesn't have Instagram connected.\n\nInstagram posting has been disabled.`);
+                            }, 100);
+                          }
+                        }}
+                        className="page-select"
+                      >
+                        {pages.map(page => (
+                          <option key={page.pageId} value={page.pageId}>
+                            {page.pageName} {page.instagramBusinessId ? "📸" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="page-hint">📸 = Instagram connected</div>
+                    </div>
+                  )}
+
+                  {/* Instagram Checkbox */}
+                  <label className={`platform-checkbox ${postToIG ? "checked" : ""} ${(() => {
+                    const currentPage = pages.find(p => p.pageId === selectedPage);
+                    return !selectedPage || !currentPage?.instagramBusinessId ? "disabled" : "";
+                  })()}`}>
+                    <input
+                      type="checkbox"
+                      checked={postToIG}
+                      disabled={(() => {
+                        const currentPage = pages.find(p => p.pageId === selectedPage);
+                        return !selectedPage || !currentPage?.instagramBusinessId;
+                      })()}
+                      onChange={e => {
+                        const currentPage = pages.find(p => p.pageId === selectedPage);
+                        if (!currentPage?.instagramBusinessId) {
+                          alert("❌ Selected page doesn't have Instagram connected.\n\nPlease select a page with Instagram or connect Instagram to this page first.");
+                          return;
+                        }
+                        setPostToIG(e.target.checked);
+                      }}
+                    />
+                    <span className="platform-icon">📸</span>
+                    <div className="platform-text">
+                      <div className="platform-name">Instagram Post</div>
+                      {(() => {
+                        const currentPage = pages.find(p => p.pageId === selectedPage);
+                        if (!selectedPage || !currentPage?.instagramBusinessId) {
+                          return (
+                            <div className="platform-hint">
+                              {!selectedPage ? "Select a Facebook page first" : "No Instagram connected to this page"}
+                            </div>
+                          );
+                        }
+                      })()}
+                    </div>
+                  </label>
+
+                  {/* Instagram Story Option */}
+                  {(selectedPost.type === "image" || selectedPost.type === "video") && selectedPost.type !== "carousel" && (
+                    <label className={`platform-checkbox story-checkbox ${postToStory ? "checked" : ""} ${(() => {
+                      const currentPage = pages.find(p => p.pageId === selectedPage);
+                      return !selectedPage || !currentPage?.instagramBusinessId ? "disabled" : "";
+                    })()}`}>
+                      <input
+                        type="checkbox"
+                        checked={postToStory}
+                        disabled={(() => {
+                          const currentPage = pages.find(p => p.pageId === selectedPage);
+                          return !selectedPage || !currentPage?.instagramBusinessId;
+                        })()}
+                        onChange={e => {
+                          const currentPage = pages.find(p => p.pageId === selectedPage);
+                          if (!currentPage?.instagramBusinessId) {
+                            alert("❌ Instagram Story requires Instagram connection.\n\nPlease select a page with Instagram connected.");
+                            return;
+                          }
+                          setPostToStory(e.target.checked);
+                          if (e.target.checked) {
+                            setPostToIG(false);
+                            setPostToFB(false);
+                          }
+                        }}
+                      />
+                      <span className="platform-icon">📖</span>
+                      <div className="platform-text">
+                        <div className="platform-name">Instagram Story</div>
+                        <div className="platform-hint">
+                          {(() => {
+                            const currentPage = pages.find(p => p.pageId === selectedPage);
+                            if (!selectedPage || !currentPage?.instagramBusinessId) {
+                              return !selectedPage ? "Select a Facebook page first" : "No Instagram connected";
+                            }
+                            return "Expires in 24 hours • Instagram only";
+                          })()}
+                        </div>
+                      </div>
+                    </label>
+                  )}
+
+                  {/* Warning */}
+                  {!postToFB && !postToIG && !postToStory && (
+                    <div className="platform-warning">
+                      ⚠️ Please select at least one platform
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Story Info */}
+              {selectedPost.type === "story" && (
+                <div className="story-info-box">
+                  <span className="story-info-icon">📖</span>
+                  <span>Instagram Story • Expires in 24 hours</span>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="modal-actions">
+                <button onClick={closeRepostModal} disabled={reposting} className="btn-cancel">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRepostSubmit}
+                  disabled={reposting || (!postToFB && !postToIG && !postToStory)}
+                  className={`btn-submit ${postToStory ? "story-submit" : ""} ${reposting || (!postToFB && !postToIG && !postToStory) ? "disabled" : ""}`}
+                >
+                  {reposting ? (
+                    <>
+                      <span className="spinner" />
+                      Posting...
+                    </>
+                  ) : (
+                    <>{postToStory ? "📖 Post Story" : "🚀 Post Now"}</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-const thStyle = {
-  padding: "12px",
-  fontWeight: "600",
-  borderBottom: "2px solid #ddd"
-};
-
-const tdStyle = {
-  padding: "12px",
-  verticalAlign: "middle"
-};
 
 export default PostsHistory;

@@ -30,24 +30,77 @@ function CreatePost() {
   const [postToFB, setPostToFB] = useState(false);
   const [postToIG, setPostToIG] = useState(false);
   const [rateLimits, setRateLimits] = useState(null);
-  
+
+  // ✅ ADD: Twitter state
+  const [postToTwitter, setPostToTwitter] = useState(false);
+  const [twitterConnected, setTwitterConnected] = useState(false);
+  const [twitterUsername, setTwitterUsername] = useState("");
+
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
 
-  const fonts = ["Arial", "Impact", "Georgia", "Verdana", "Courier New", "Comic Sans MS", "Palatino"];
+// CreatePost.jsx - Updated fonts array with Google Fonts
+
+const fonts = [
+  // Web-safe fonts (always available)
+  "Arial",
+  "Impact",
+  "Georgia",
+  "Verdana",
+  "Courier New",
+  "Comic Sans MS",
+  "Palatino",
+  "Times New Roman",
+  
+  // ✅ Google Fonts (modern & beautiful)
+  "Roboto",           // Clean, modern sans-serif
+  "Montserrat",       // Bold, geometric sans-serif
+  "Poppins",          // Friendly, rounded sans-serif
+  "Playfair Display", // Elegant serif
+  "Oswald",           // Bold, condensed sans-serif
+  "Lora",             // Beautiful serif for quotes
+  "Pacifico",         // Handwritten, fun script
+  "Dancing Script",   // Elegant cursive
+  "Bebas Neue",       // All-caps, bold display font
+  "Cinzel",           // Classy, luxury serif
+];
+
   
   const gradients = [
+    // Vibrant
     { name: "Purple", c1: "#667eea", c2: "#764ba2" },
     { name: "Sunset", c1: "#ff6b6b", c2: "#feca57" },
     { name: "Ocean", c1: "#4facfe", c2: "#00f2fe" },
-    { name: "Forest", c1: "#56ab2f", c2: "#a8e063" },
     { name: "Instagram", c1: "#f09433", c2: "#bc1888" },
-    { name: "Night", c1: "#2c3e50", c2: "#3498db" }
+    { name: "Fire", c1: "#ff0844", c2: "#ffb199" },
+    { name: "Neon", c1: "#b3ffab", c2: "#12fff7" },
+    
+    // Pastels
+    { name: "Pink", c1: "#ff9a9e", c2: "#fad0c4" },
+    { name: "Lavender", c1: "#a18cd1", c2: "#fbc2eb" },
+    { name: "Mint", c1: "#00c9ff", c2: "#92fe9d" },
+    { name: "Peach", c1: "#ff758c", c2: "#ff7eb3" },
+    { name: "Cotton Candy", c1: "#ffa6f6", c2: "#a79af9" },
+    
+    // Cool
+    { name: "Night", c1: "#2c3e50", c2: "#3498db" },
+    { name: "Sky", c1: "#2980b9", c2: "#6dd5fa" },
+    { name: "Forest", c1: "#56ab2f", c2: "#a8e063" },
+    
+    // Warm
+    { name: "Orange", c1: "#ff8008", c2: "#ffc837" },
+    { name: "Rose", c1: "#eb3349", c2: "#f45c43" },
+    
+    // Solid
+    { name: "White", c1: "#ffffff", c2: "#ffffff" },
+    { name: "Black", c1: "#000000", c2: "#000000" },
   ];
+  
 
   useEffect(() => {
     fetchContent();
     loadPagesForUser();
+    checkTwitterConnection(); // ✅ ADD THIS
   }, []);
 
   useEffect(() => {
@@ -63,6 +116,22 @@ function CreatePost() {
       drawTextCanvas();
     }
   }, [textContent, fontSize, fontFamily, textColor, backgroundGradient, textAlign, fontWeight]);
+
+
+// ✅ FIXED: Check Twitter connection (line ~90)
+// ✅ Check Twitter connection using api.js (line ~90)
+const checkTwitterConnection = async () => {
+  try {
+    const response = await api.get('/user/twitter/status');
+    
+    if (response.data.success && response.data.connected) {
+      setTwitterConnected(true);
+      setTwitterUsername(response.data.username || '');
+    }
+  } catch (error) {
+    console.error('Error checking Twitter status:', error);
+  }
+};
 
   const drawTextCanvas = () => {
     const canvas = canvasRef.current;
@@ -258,6 +327,38 @@ function CreatePost() {
     }
   };
 
+
+// ✅ Post to Twitter using api.js (line ~250)
+async function postContentToTwitter(cont) {
+  try {
+    const formData = new FormData();
+    formData.append('caption', cont.title || 'Posted via Social Media Manager');
+    
+    // Handle different content types
+    if (cont.type === 'image' && cont.image) {
+      const imageResponse = await fetch(cont.image);
+      const imageBlob = await imageResponse.blob();
+      formData.append('media', imageBlob, 'image.jpg');
+    } else if (cont.type === 'video' && cont.videoUrl) {
+      const videoResponse = await fetch(cont.videoUrl);
+      const videoBlob = await videoResponse.blob();
+      formData.append('media', videoBlob, 'video.mp4');
+    }
+
+    const response = await api.post('/user/twitter/post', formData);
+
+    if (response.data.success) {
+      console.log('✅ Posted to Twitter:', response.data.data.url);
+      return { success: true, url: response.data.data.url };
+    } else {
+      throw new Error(response.data.message || 'Failed to post to Twitter');
+    }
+  } catch (error) {
+    console.error('❌ Twitter post error:', error);
+    return { success: false, error: error.response?.data?.message || error.message };
+  }
+}
+  // ✅ UPDATE: Modified handlePost function to include Twitter
   async function handlePost(cont) {
     try {
       setErrorMsg("");
@@ -267,18 +368,13 @@ function CreatePost() {
         return;
       }
 
-      if (!selectedPage) {
-        alert("Select a page");
-        return;
-      }
-
+      // Handle Story posting (Instagram only)
       if (cont.type === "story") {
         const page = pages.find(p => p.pageId === selectedPage);
         if (!page?.instagramBusinessId) {
           alert("❌ This page doesn't have Instagram connected.\n\nStories require Instagram Business Account.");
           return;
         }
-
         if (rateLimits && rateLimits.quota_usage >= 25) {
           alert("Instagram daily limit reached (25 posts)");
           return;
@@ -300,8 +396,40 @@ function CreatePost() {
         return;
       }
 
-      if (!postToFB && !postToIG) {
-        alert("Select at least one platform");
+      // ✅ Check if at least one platform is selected
+      if (!postToFB && !postToIG && !postToTwitter) {
+        alert("Select at least one platform (Facebook, Instagram, or Twitter)");
+        return;
+      }
+
+      // ✅ Handle Twitter-only posts (no page selection needed)
+      if (postToTwitter && !postToFB && !postToIG) {
+        if (!twitterConnected) {
+          alert("❌ Twitter not connected. Please connect Twitter first.");
+          return;
+        }
+
+        // Twitter doesn't support carousels
+        if (cont.type === "carousel") {
+          alert("❌ Twitter doesn't support carousel posts. Please post individual images.");
+          return;
+        }
+
+        setLoading(true);
+        const twitterResult = await postContentToTwitter(cont);
+        setLoading(false);
+
+        if (twitterResult.success) {
+          alert(`✅ Posted to Twitter successfully!\n\nView at: ${twitterResult.url}`);
+        } else {
+          alert(`❌ Failed to post to Twitter: ${twitterResult.error}`);
+        }
+        return;
+      }
+
+      // Handle Facebook/Instagram posts (require page selection)
+      if (!selectedPage && (postToFB || postToIG)) {
+        alert("Select a Facebook page");
         return;
       }
 
@@ -310,37 +438,74 @@ function CreatePost() {
         return;
       }
 
-      let response;
+      // ✅ Post to Facebook/Instagram
+      let fbIgResults = { fb: null, ig: null };
+      setLoading(true);
 
-      if (cont.type === "carousel") {
-        response = await api.post("/user/post", {
-          userId: user._id,
-          pageId: selectedPage,
-          title: cont.title || "",
-          type: "carousel",
-          items: cont.items,
-          postToFB,
-          postToIG
-        });
-      } else {
-        response = await api.post("/user/post", {
-          userId: user._id,
-          pageId: selectedPage,
-          title: cont.title || "",
-          type: cont.type,
-          image: cont.image || null,
-          videoUrl: cont.videoUrl || null,
-          postToFB,
-          postToIG
-        });
+      try {
+        let response;
+        if (cont.type === "carousel") {
+          if (postToTwitter) {
+            alert("⚠️ Note: Carousel posts cannot be posted to Twitter. Will post to FB/IG only.");
+          }
+
+          response = await api.post("/user/post", {
+            userId: user._id,
+            pageId: selectedPage,
+            title: cont.title || "",
+            type: "carousel",
+            items: cont.items,
+            postToFB,
+            postToIG
+          });
+        } else {
+          response = await api.post("/user/post", {
+            userId: user._id,
+            pageId: selectedPage,
+            title: cont.title || "",
+            type: cont.type,
+            image: cont.image || null,
+            videoUrl: cont.videoUrl || null,
+            postToFB,
+            postToIG
+          });
+        }
+
+        if (response.data.success) {
+          fbIgResults = { fb: postToFB, ig: postToIG };
+        }
+      } catch (err) {
+        console.error("FB/IG post error:", err);
       }
 
-      if (response.data.success) {
-        alert("✅ Posted!");
+      // ✅ Post to Twitter (if selected and not carousel)
+      let twitterResult = { success: false };
+      if (postToTwitter && cont.type !== "carousel") {
+        if (twitterConnected) {
+          twitterResult = await postContentToTwitter(cont);
+        } else {
+          alert("⚠️ Twitter not connected. Post sent to other platforms only.");
+        }
+      }
+
+      setLoading(false);
+
+      // ✅ Show results
+      const successMsg = [];
+      if (fbIgResults.fb) successMsg.push("Facebook");
+      if (fbIgResults.ig) successMsg.push("Instagram");
+      if (twitterResult.success) successMsg.push("Twitter");
+
+      if (successMsg.length > 0) {
+        alert(`✅ Posted successfully to: ${successMsg.join(", ")}!`);
         fetchContent();
         if (postToIG) setTimeout(() => fetchRateLimits(), 2000);
+      } else {
+        alert("❌ Failed to post to any platform");
       }
+
     } catch (err) {
+      setLoading(false);
       alert("Failed: " + (err.response?.data?.error || err.message));
     }
   }
@@ -392,6 +557,7 @@ function CreatePost() {
           <div className="platform-box">
             <h3>📱 Select Platforms</h3>
 
+            {/* ✅ Facebook Checkbox */}
             <label className={`platform-option ${postToFB ? "active" : ""}`}>
               <input
                 type="checkbox"
@@ -416,6 +582,7 @@ function CreatePost() {
               </select>
             )}
 
+            {/* ✅ Instagram Checkbox */}
             <label
               className={`platform-option ${postToIG ? "active" : ""} ${
                 !postToFB || !currentPageHasIG() ? "disabled" : ""
@@ -451,10 +618,55 @@ function CreatePost() {
                 </div>
               </div>
             )}
+
+            {/* ✅ ADD: Twitter Checkbox */}
+            <label
+              className={`platform-option ${postToTwitter ? "active" : ""} ${
+                !twitterConnected ? "disabled" : ""
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={postToTwitter}
+                disabled={!twitterConnected}
+                onChange={(e) => {
+                  if (!twitterConnected) {
+                    alert("❌ Twitter not connected. Go to Dashboard to connect Twitter.");
+                    return;
+                  }
+                  setPostToTwitter(e.target.checked);
+                }}
+              />
+              <span className="icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="#1DA1F2" style={{ verticalAlign: 'middle' }}>
+                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                </svg>
+              </span>
+              <span>Twitter Post</span>
+              {twitterConnected && twitterUsername && (
+                <small style={{ color: '#1DA1F2' }}>@{twitterUsername}</small>
+              )}
+              {!twitterConnected && <small style={{ color: '#dc3545' }}>Not connected</small>}
+            </label>
+
+            {/* ✅ ADD: Twitter Connection Warning */}
+            {postToTwitter && !twitterConnected && (
+              <div className="warning-box" style={{
+                backgroundColor: '#fff3cd',
+                border: '1px solid #ffc107',
+                padding: '10px',
+                borderRadius: '5px',
+                marginTop: '10px'
+              }}>
+                <span style={{ color: '#856404' }}>
+                  ⚠️ Twitter is not connected. <a href="/" style={{ color: '#1DA1F2' }}>Connect Twitter</a>
+                </span>
+              </div>
+            )}
           </div>
         )}
 
-        {/* Story Settings */}
+        {/* Story Settings (unchanged) */}
         {contentType === "story" && (
           <div className="platform-box story-platform">
             <h3>📖 Instagram Story</h3>
@@ -604,12 +816,14 @@ function CreatePost() {
                   title={`Size: ${fontSize}px`}
                 />
 
-                <input
-                  type="color"
-                  value={textColor}
-                  onChange={(e) => setTextColor(e.target.value)}
-                  title="Text color"
-                />
+              <label className="color-wrap" title="Text color">
+  <input
+    type="color"
+    className="color-picker-overlay"
+    value={textColor}
+    onChange={(e) => setTextColor(e.target.value)}
+  />
+</label>
               </div>
 
               <div className="style-btns">

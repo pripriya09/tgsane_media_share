@@ -404,14 +404,45 @@
     flex: 2;
     cursor: pointer;
   }
-  
-  .text-tools input[type="color"] {
-    flex: 1;
-    height: 36px;
-    border: 2px solid #e0e0e0;
-    border-radius: 6px;
-    cursor: pointer;
-  }
+
+
+
+/* wrapper shows the gradient & border */
+.color-wrap {
+  display: inline-block;
+  width: 160px;            /* adjust */
+  height: 40px;            /* adjust */
+  border-radius: 10px;
+  border: 2px solid #e0e0e0;
+  background: linear-gradient(
+    to right,
+    #ff0000,#ff8000,#ffff00,#00ff00,#00ffff,#0000ff,#8000ff
+  );
+  box-sizing: border-box;
+  position: relative;     /* for overlay input */
+  overflow: hidden;
+}
+
+/* invisible input sits on top and captures clicks (native picker opens) */
+.color-picker-overlay {
+  position: absolute;
+  inset: 0;               /* top:0; right:0; bottom:0; left:0; */
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  opacity: 0;             /* invisible but accessible */
+  cursor: pointer;
+}
+
+/* keyboard focus outline for accessibility */
+.color-picker-overlay:focus {
+  outline: 3px solid rgba(0,120,212,0.12);
+  outline-offset: 0;
+}
+
   
   .style-btns {
     display: flex;
@@ -774,3 +805,45 @@
   
 
   
+
+  /* Twitter platform option styling */
+.platform-option svg {
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
+  margin-right: 5px;
+}
+
+.platform-option.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.platform-option.disabled input {
+  cursor: not-allowed;
+}
+
+.platform-option small {
+  display: block;
+  font-size: 0.85em;
+  margin-top: 3px;
+  font-style: italic;
+}
+
+.warning-box {
+  background-color: #fff3cd;
+  border: 1px solid #ffc107;
+  padding: 10px;
+  border-radius: 5px;
+  margin-top: 10px;
+}
+
+.warning-box a {
+  color: #1DA1F2;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.warning-box a:hover {
+  text-decoration: underline;
+}

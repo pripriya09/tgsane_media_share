@@ -25,16 +25,16 @@
 
 // export default AppRoutes;
 
-
 // AppRoutes.jsx
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Login from './Login'; // ← Only login page
+import Login from './Login';
 import AdminDashboard from './AdminDashboard';
 import Home from './Home';
 import LogMedia from './LogMedia';
 import CreatePost from './CreatePost';
 import PostsHistory from './PostsHistory';
+import TwitterCallback from './TwitterCallback'; // ✅ ADD THIS
 
 // Protected Route Component
 function ProtectedRoute({ children, requireAdmin = false }) {
@@ -58,6 +58,9 @@ function AppRoutes() {
         {/* Main entry point - Login page */}
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Navigate to="/login" />} />
+
+        {/* ✅ ADD: Twitter OAuth Callback Route (outside protected routes) */}
+        <Route path="/auth/twitter/callback" element={<TwitterCallback />} />
 
         {/* Admin Routes */}
         <Route 

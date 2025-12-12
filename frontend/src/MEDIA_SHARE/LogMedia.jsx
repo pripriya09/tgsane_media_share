@@ -1,4 +1,4 @@
-// LogMedia.jsx - Fix to check facebookConnected
+// LogMedia.jsx - Complete with Facebook AND Twitter Support
 import React, { useEffect, useState } from "react";
 import api from "./api";
 
@@ -9,6 +9,11 @@ function LogMedia() {
   const [connectedPages, setConnectedPages] = useState([]);
   const [showTutorial, setShowTutorial] = useState(false);
   const [hasSeenTutorial, setHasSeenTutorial] = useState(false);
+
+  // ✅ Twitter states
+  const [twitterConnected, setTwitterConnected] = useState(false);
+  const [twitterUsername, setTwitterUsername] = useState("");
+  const [twitterLoading, setTwitterLoading] = useState(false);
 
   useEffect(() => {
     // Check tutorial
@@ -22,6 +27,7 @@ function LogMedia() {
     // Load user profile
     loadUserProfile();
     loadConnectedPages();
+    checkTwitterConnection(); // ✅ Check Twitter status
 
     // Load Facebook SDK
     (function (d, s, id) {
@@ -67,6 +73,69 @@ function LogMedia() {
     }
   };
 
+  // ✅ Check Twitter connection status using api.js
+  const checkTwitterConnection = async () => {
+    try {
+      const response = await api.get('/user/twitter/status');
+      
+      if (response.data.success && response.data.connected) {
+        setTwitterConnected(true);
+        setTwitterUsername(response.data.username || '');
+      }
+    } catch (error) {
+      console.error('Error checking Twitter status:', error);
+    }
+  };
+
+  // ✅ Connect Twitter using api.js
+  const handleTwitterConnect = async () => {
+    setTwitterLoading(true);
+    try {
+      const response = await api.post('/user/twitter/auth/request');
+
+      if (response.data.success) {
+        // Redirect to Twitter authorization
+        window.location.href = response.data.authUrl;
+      } else {
+        alert('Failed to connect Twitter: ' + response.data.message);
+        setTwitterLoading(false);
+      }
+    } catch (error) {
+      console.error('Twitter connect error:', error);
+      alert('Error connecting Twitter: ' + (error.response?.data?.message || error.message));
+      setTwitterLoading(false);
+    }
+  };
+
+  // ✅ Disconnect Twitter using api.js
+  const handleTwitterDisconnect = async () => {
+    if (!confirm('Are you sure you want to disconnect Twitter?')) return;
+
+    setTwitterLoading(true);
+    try {
+      const response = await api.post('/user/twitter/disconnect');
+
+      if (response.data.success) {
+        setTwitterConnected(false);
+        setTwitterUsername('');
+        
+        // Update localStorage
+        const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
+        const updatedUser = { ...user, twitterConnected: false };
+        localStorage.setItem("ms_user", JSON.stringify(updatedUser));
+        
+        alert('✅ Twitter disconnected successfully');
+      } else {
+        alert('Failed to disconnect Twitter');
+      }
+    } catch (error) {
+      console.error('Twitter disconnect error:', error);
+      alert('Error disconnecting Twitter: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setTwitterLoading(false);
+    }
+  };
+
   const closeTutorial = () => {
     setShowTutorial(false);
     setHasSeenTutorial(true);
@@ -77,6 +146,7 @@ function LogMedia() {
     setShowTutorial(true);
   };
 
+  // ✅ Facebook Login Handler (KEPT - YOUR ORIGINAL CODE)
   const handleFBLogin = () => {
     if (!window.FB) {
       alert("Facebook SDK not loaded");
@@ -206,6 +276,9 @@ function LogMedia() {
             </h3>
             <p style={{ margin: 0, color: "#666", fontSize: 12 }}>
               {userProfile.facebookConnected ? "✅ Facebook Connected" : "❌ Facebook Not Connected"}
+              <br />
+              {/* ✅ Twitter status line */}
+              {twitterConnected ? `✅ Twitter Connected (@${twitterUsername})` : "❌ Twitter Not Connected"}
             </p>
           </div>
 
@@ -228,13 +301,14 @@ function LogMedia() {
         </div>
       ) : (
         <div style={{ textAlign: "center", marginBottom: 30 }}>
-          <h2>Connect Your Facebook Page & Instagram</h2>
-          <p style={{ color: "#666" }}>Click below to connect your social media</p>
+          <h2>Connect Your Social Media</h2>
+          <p style={{ color: "#666" }}>Connect Facebook, Instagram & Twitter</p>
         </div>
       )}
 
       {/* ACTION BUTTONS */}
       <div style={{ textAlign: "center", display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+        {/* ✅ Facebook Button (YOUR ORIGINAL) */}
         <button
           onClick={handleFBLogin}
           style={{
@@ -248,9 +322,29 @@ function LogMedia() {
             fontWeight: 600,
           }}
         >
-          {userProfile?.facebookConnected ? "Reconnect / Add More Pages" : "Connect Facebook"}
+          {userProfile?.facebookConnected ? "📘 Reconnect / Add More Pages" : "📘 Connect Facebook"}
         </button>
 
+        {/* ✅ Twitter Button (NEW) */}
+        <button
+          onClick={twitterConnected ? handleTwitterDisconnect : handleTwitterConnect}
+          disabled={twitterLoading}
+          style={{
+            padding: "14px 32px",
+            fontSize: 16,
+            background: twitterConnected ? "#42b72a" : "#1DA1F2",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
+            cursor: twitterLoading ? "not-allowed" : "pointer",
+            fontWeight: 600,
+            opacity: twitterLoading ? 0.6 : 1,
+          }}
+        >
+          {twitterLoading ? "⏳ Loading..." : twitterConnected ? "🐦 Disconnect Twitter" : "🐦 Connect Twitter"}
+        </button>
+
+        {/* ✅ Tutorial Button (YOUR ORIGINAL) */}
         <button
           onClick={openTutorial}
           style={{
@@ -267,6 +361,28 @@ function LogMedia() {
           📹 View Tutorial
         </button>
       </div>
+
+      {/* ✅ Twitter Info Box (NEW - Shows when connected) */}
+      {twitterConnected && (
+        <div style={{
+          marginTop: 20,
+          padding: 15,
+          background: "#e7f3ff",
+          border: "1px solid #1DA1F2",
+          borderRadius: 8,
+          textAlign: "center"
+        }}>
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="#1DA1F2" style={{ verticalAlign: 'middle', marginRight: 10 }}>
+            <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+          </svg>
+          <strong style={{ color: "#1DA1F2", fontSize: 18 }}>
+            @{twitterUsername}
+          </strong>
+          <p style={{ margin: "8px 0 0 0", fontSize: 14, color: "#666" }}>
+            ✅ Ready to post to Twitter
+          </p>
+        </div>
+      )}
     </div>
   );
 }

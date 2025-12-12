@@ -562,20 +562,25 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
       }
     }
     const Post = (await import("../models/Post.js")).default;
+// AFTER - Add platform field:
+// ✅ Determine which platforms were posted to
+let platforms = [];
+if (postToFB && results.fb?.id) platforms.push('facebook');
+if (postToIG && results.ig?.id) platforms.push('instagram');
 
-    const postData = {
-      userId,
-      pageId,
-      title,
-      type,
-      image: type === "image" ? image : null,
-      videoUrl: type === "video" ? videoUrl : null,
-      items: type === "carousel" ? items : null,  // ← Now saved correctly!
-      fbPostId: results.fb?.id || results.fb?.post_id || null,
-      igMediaId: results.ig?.id || null,
-      postedAt: new Date()
-    };
-
+const postData = {
+  userId,
+  pageId,
+  title,
+  platform: platforms.length > 0 ? platforms : ['unknown'], // ✅ Array
+  type,
+  image: type === "image" ? image : null,
+  videoUrl: type === "video" ? videoUrl : null,
+  items: type === "carousel" ? items : null,
+  fbPostId: results.fb?.id || results.fb?.post_id || null,
+  igMediaId: results.ig?.id || null,
+  postedAt: new Date()
+};
     const savedPost = await Post.create(postData);
     console.log("FINAL POST SAVED TO DB:", savedPost._id, "Type:", type, "Items:", savedPost.items?.length || 0);
 
@@ -752,17 +757,19 @@ export async function postStory(req, res) {
 
     // Step 4: Save to database
     const Post = (await import("../models/Post.js")).default;
-    const savedPost = await Post.create({
-      userId,
-      pageId,
-      title: "Instagram Story",
-      type: "story",
-      image: type === "image" ? image : null,
-      videoUrl: type === "video" ? videoUrl : null,
-      igMediaId: result.id,
-      fbPostId: null, // Stories are Instagram-only
-      postedAt: new Date()
-    });
+// AFTER - Add platform field:
+const savedPost = await Post.create({
+  userId,
+  pageId,
+  title: "Instagram Story",
+  platform: ["instagram"], // ✅ Array
+  type: "story",
+  image: type === "image" ? image : null,
+  videoUrl: type === "video" ? videoUrl : null,
+  igMediaId: result.id,
+  fbPostId: null,
+  postedAt: new Date()
+});
 
     console.log("✅ Story saved to database:", savedPost._id);
 

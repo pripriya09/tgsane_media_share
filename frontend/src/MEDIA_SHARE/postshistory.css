@@ -85,15 +85,104 @@ box-sizing: border-box;
     overflow-x: auto;
   }
   
-  .posts-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 20px;
-    background: white;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-  }
+/* ✅ Fix table layout and truncation */
+.posts-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+}
+
+/* Title column - truncate long text */
+.title-cell {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
+}
+
+/* Page column - truncate if needed */
+.page-cell {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Action buttons - never wrap */
+.action-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap !important;
+  justify-content: flex-start;
+}
+
+.btn-repost,
+.btn-delete {
+  padding: 6px 12px;
+  font-size: 13px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.btn-repost {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-repost:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.btn-repost:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.btn-delete {
+  background: #e74c3c;
+  color: white;
+}
+
+.btn-delete:hover {
+  background: #c0392b;
+  transform: translateY(-2px);
+}
+
+/* Twitter badge */
+.platform-badge.tw-badge {
+  background: #1DA1F2;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-block;
+  margin: 2px;
+}
+
+/* Scheduled status */
+.scheduled-for {
+  color: #3498db;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.pending-view {
+  color: #95a5a6;
+  font-style: italic;
+  font-size: 13px;
+}
+
   
   .posts-table thead {
     background: #f0f0f0;
@@ -504,7 +593,7 @@ box-sizing: border-box;
   }
   
   .platform-checkbox.checked .platform-name {
-    color: white;
+    color: rgb(18, 16, 16);
   }
   
   .platform-text {
@@ -518,7 +607,7 @@ box-sizing: border-box;
   }
   
   .platform-checkbox.checked .platform-hint {
-    color: rgba(255,255,255,0.8);
+    color: rgba(21, 21, 21, 0.8);
   }
   
   /* Page Selector */
@@ -657,6 +746,91 @@ box-sizing: border-box;
     display: inline-block;
     animation: spin 1s linear infinite;
   }
+
+
+
+
+
+
+
+
+
+
+
+
+/* Add to postshistory.css */
+
+/* Twitter platform badge */
+.platform-badge.tw-badge {
+  background: #1DA1F2;
+  color: white;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-block;
+  margin: 2px;
+}
+
+/* Status badges */
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.status-badge.status-scheduled {
+  background: #3498db;
+  color: white;
+}
+
+.status-badge.status-posted {
+  background: #27ae60;
+  color: white;
+}
+
+.status-badge.status-failed {
+  background: #e74c3c;
+  color: white;
+}
+
+.scheduled-for {
+  color: #3498db;
+  font-weight: 500;
+}
+
+.pending-view {
+  color: #95a5a6;
+  font-style: italic;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   
   @keyframes spin {
     to {

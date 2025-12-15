@@ -8,7 +8,7 @@ import adminRoute from "./route/adminRoute.js";
 import userRoute from "./route/userRoute.js";
 import { startTokenRefreshCron } from "./utils/cronRefresh.js";
 import { uploadLocalToCloudinary } from "./utils/cloudinaryHelper.js";
-
+import { startPostScheduler } from "./utils/postScheduler.js";
 
 
 import path from "path";
@@ -129,6 +129,6 @@ app.post("/upload", upload.array("file", 12), async (req, res) => {
 
 // start cron if you want (uncomment in production)
 startTokenRefreshCron();
-
+startPostScheduler()
 const port = process.env.PORT || 8006;
 app.listen(port, ()=>console.log("Server listening", port));

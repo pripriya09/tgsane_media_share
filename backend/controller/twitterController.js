@@ -170,104 +170,106 @@ export const getTwitterStatus = async (req, res) => {
   }
 };
 
-// Post to Twitter (matches your Post schema) ✅
-export const postToTwitter = async (req, res) => {
-  try {
-    const { caption, title } = req.body; // Use caption instead of text
-    const userId = req.user.userId;
-    const mediaFile = req.file;
+// // Post to Twitter (matches your Post schema) ✅
+// export const postToTwitter = async (req, res) => {
+//   try {
+//     const { caption, title } = req.body; // Use caption instead of text
+//     const userId = req.user.userId;
+//     const mediaFile = req.file;
 
-    const user = await User.findById(userId);
+//     const user = await User.findById(userId);
 
-    if (!user.twitterConnected) {
-      return res.status(400).json({
-        success: false,
-        message: 'Twitter account not connected'
-      });
-    }
+//     if (!user.twitterConnected) {
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Twitter account not connected'
+//       });
+//     }
 
-    // Create user's Twitter client
-    const client = getUserClient(user);
+//     // Create user's Twitter client
+//     const client = getUserClient(user);
 
-    const tweetText = caption || title || 'Posted via Social Media Manager';
-    let tweetData = { text: tweetText };
+//     const tweetText = caption || title || 'Posted via Social Media Manager';
+//     let tweetData = { text: tweetText };
 
-    // Upload media if provided
-    let mediaUrl = null;
-    if (mediaFile) {
-      try {
-        const mediaId = await client.v1.uploadMedia(mediaFile.path);
-        tweetData.media = { media_ids: [mediaId] };
-        mediaUrl = mediaFile.filename; // Store filename
-      } catch (uploadError) {
-        console.error('Twitter Media Upload Error:', uploadError);
-      } finally {
-        // Clean up uploaded file
-        if (fs.existsSync(mediaFile.path)) {
-          fs.unlinkSync(mediaFile.path);
-        }
-      }
-    }
+//     // Upload media if provided
+//     let mediaUrl = null;
+//     if (mediaFile) {
+//       try {
+//         const mediaId = await client.v1.uploadMedia(mediaFile.path);
+//         tweetData.media = { media_ids: [mediaId] };
+//         mediaUrl = mediaFile.filename; // Store filename
+//       } catch (uploadError) {
+//         console.error('Twitter Media Upload Error:', uploadError);
+//       } finally {
+//         // Clean up uploaded file
+//         if (fs.existsSync(mediaFile.path)) {
+//           fs.unlinkSync(mediaFile.path);
+//         }
+//       }
+//     }
 
-    // Post tweet
-    const tweet = await client.v2.tweet(tweetData);
+//     // Post tweet
+//     const tweet = await client.v2.tweet(tweetData);
 
-    // Save to database (matches your Post schema) ✅
-    // const post = new Post({
-    //   userId: userId,
-    //   platform: 'twitter',
-    //   type: mediaFile ? 'image' : 'tweet', // Set type based on media
-    //   caption: tweetText,
-    //   title: title || null,
-    //   image: mediaUrl,
-    //   tweetId: tweet.data.id, // Twitter-specific ID
-    //   status: 'posted',
-    //   postedAt: new Date()
-    // });
+//     // Save to database (matches your Post schema) ✅
+//     // const post = new Post({
+//     //   userId: userId,
+//     //   platform: 'twitter',
+//     //   type: mediaFile ? 'image' : 'tweet', // Set type based on media
+//     //   caption: tweetText,
+//     //   title: title || null,
+//     //   image: mediaUrl,
+//     //   tweetId: tweet.data.id, // Twitter-specific ID
+//     //   status: 'posted',
+//     //   postedAt: new Date()
+//     // });
 
-    const post = new Post({
-        userId: userId,
-        title: caption.substring(0, 100),
-        platform: ['twitter'], // ✅ Array
-        type: mediaFile ? (mediaFile.mimetype.startsWith('video') ? 'video' : 'image') : 'text',
-        image: mediaFile && !mediaFile.mimetype.startsWith('video') ? mediaFile.path : null,
-        videoUrl: mediaFile && mediaFile.mimetype.startsWith('video') ? mediaFile.path : null,
-        tweetId: tweet.data.id,
-        status: 'posted',
-        postedAt: new Date(),
-      });
+//     const post = new Post({
+//         userId: userId,
+//         title: caption.substring(0, 100),
+//         platform: ['twitter'], // ✅ Array
+//         type: mediaFile ? (mediaFile.mimetype.startsWith('video') ? 'video' : 'image') : 'text',
+//         image: mediaFile && !mediaFile.mimetype.startsWith('video') ? mediaFile.path : null,
+//         videoUrl: mediaFile && mediaFile.mimetype.startsWith('video') ? mediaFile.path : null,
+//         tweetId: tweet.data.id,
+//         status: 'posted',
+//         postedAt: new Date(),
+//       });
       
 
-    await post.save();
+//     await post.save();
 
-    res.json({
-      success: true,
-      message: 'Posted to Twitter successfully',
-      data: {
-        tweetId: tweet.data.id,
-        text: tweet.data.text,
-        url: `https://twitter.com/${user.twitterUsername}/status/${tweet.data.id}`,
-        postDbId: post._id
-      }
-    });
+//     res.json({
+//       success: true,
+//       message: 'Posted to Twitter successfully',
+//       data: {
+//         tweetId: tweet.data.id,
+//         text: tweet.data.text,
+//         url: `https://twitter.com/${user.twitterUsername}/status/${tweet.data.id}`,
+//         postDbId: post._id
+//       }
+//     });
 
-  } catch (error) {
-    console.error('Twitter Post Error:', error);
+//   } catch (error) {
+//     console.error('Twitter Post Error:', error);
 
-    // Clean up file if exists
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
+//     // Clean up file if exists
+//     if (req.file && fs.existsSync(req.file.path)) {
+//       fs.unlinkSync(req.file.path);
+//     }
 
-    res.status(500).json({
-      success: false,
-      message: error.data?.detail || 'Failed to post to Twitter',
-      error: error.message
-    });
-  }
-};
+//     res.status(500).json({
+//       success: false,
+//       message: error.data?.detail || 'Failed to post to Twitter',
+//       error: error.message
+//     });
+//   }
+// };
 
 // Delete tweet
+// twitterController.js - UPDATE deleteTwitterPost
+
 export const deleteTwitterPost = async (req, res) => {
   try {
     const { tweetId } = req.params;
@@ -287,9 +289,13 @@ export const deleteTwitterPost = async (req, res) => {
     // Delete tweet from Twitter
     await client.v2.deleteTweet(tweetId);
 
-    // Update database
+    // ✅ UPDATE: platform is now an array
     await Post.findOneAndUpdate(
-      { userId, tweetId: tweetId, platform: 'twitter' },
+      { 
+        userId, 
+        tweetId: tweetId, 
+        platform: { $in: ['twitter'] }  // ✅ Use $in for array
+      },
       { status: 'deleted' }
     );
 
@@ -308,14 +314,16 @@ export const deleteTwitterPost = async (req, res) => {
   }
 };
 
-// Get user's Twitter posts
+// twitterController.js - UPDATE getTwitterPosts
+
 export const getTwitterPosts = async (req, res) => {
   try {
     const userId = req.user.userId;
 
+    // ✅ UPDATE: platform is now an array
     const posts = await Post.find({
       userId,
-      platform: 'twitter',
+      platform: { $in: ['twitter'] },  // ✅ Use $in for array
       status: 'posted'
     }).sort({ postedAt: -1 });
 
@@ -334,3 +342,4 @@ export const getTwitterPosts = async (req, res) => {
     });
   }
 };
+

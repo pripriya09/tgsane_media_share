@@ -31,10 +31,16 @@ function CreatePost() {
   const [postToIG, setPostToIG] = useState(false);
   const [rateLimits, setRateLimits] = useState(null);
 
-  // ✅ ADD: Twitter state
+  //  Twitter state
   const [postToTwitter, setPostToTwitter] = useState(false);
   const [twitterConnected, setTwitterConnected] = useState(false);
   const [twitterUsername, setTwitterUsername] = useState("");
+
+
+    //  Scheduling states
+    const [isScheduling, setIsScheduling] = useState(false);
+    const [scheduledDateTime, setScheduledDateTime] = useState("");
+    const [hashtags, setHashtags] = useState("");
 
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
@@ -328,58 +334,30 @@ const checkTwitterConnection = async () => {
   };
 
 
-// ✅ Post to Twitter using api.js (line ~250)
-async function postContentToTwitter(cont) {
+async function handlePost(cont) {
   try {
-    const formData = new FormData();
-    formData.append('caption', cont.title || 'Posted via Social Media Manager');
-    
-    // Handle different content types
-    if (cont.type === 'image' && cont.image) {
-      const imageResponse = await fetch(cont.image);
-      const imageBlob = await imageResponse.blob();
-      formData.append('media', imageBlob, 'image.jpg');
-    } else if (cont.type === 'video' && cont.videoUrl) {
-      const videoResponse = await fetch(cont.videoUrl);
-      const videoBlob = await videoResponse.blob();
-      formData.append('media', videoBlob, 'video.mp4');
+    setErrorMsg("");
+    const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
+    if (!user?._id) {
+      alert("Please login");
+      return;
     }
 
-    const response = await api.post('/user/twitter/post', formData);
-
-    if (response.data.success) {
-      console.log('✅ Posted to Twitter:', response.data.data.url);
-      return { success: true, url: response.data.data.url };
-    } else {
-      throw new Error(response.data.message || 'Failed to post to Twitter');
-    }
-  } catch (error) {
-    console.error('❌ Twitter post error:', error);
-    return { success: false, error: error.response?.data?.message || error.message };
-  }
-}
-  // ✅ UPDATE: Modified handlePost function to include Twitter
-  async function handlePost(cont) {
-    try {
-      setErrorMsg("");
-      const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
-      if (!user?._id) {
-        alert("Please login");
+    // Handle Story posting
+    if (cont.type === "story") {
+      if (!selectedPage) {
+        alert("❌ Please select a Facebook page");
         return;
       }
 
-      // Handle Story posting (Instagram only)
-      if (cont.type === "story") {
-        const page = pages.find(p => p.pageId === selectedPage);
-        if (!page?.instagramBusinessId) {
-          alert("❌ This page doesn't have Instagram connected.\n\nStories require Instagram Business Account.");
-          return;
-        }
-        if (rateLimits && rateLimits.quota_usage >= 25) {
-          alert("Instagram daily limit reached (25 posts)");
-          return;
-        }
+      const page = pages.find(p => p.pageId === selectedPage);
+      if (!page?.instagramBusinessId) {
+        alert("❌ Selected page doesn't have Instagram connected");
+        return;
+      }
 
+      setLoading(true);
+      try {
         const response = await api.post("/user/story", {
           userId: user._id,
           pageId: selectedPage,
@@ -389,126 +367,179 @@ async function postContentToTwitter(cont) {
         });
 
         if (response.data.success) {
-          alert("✅ Story posted!");
-          fetchContent();
-          setTimeout(() => fetchRateLimits(), 2000);
+          alert("✅ Story posted successfully! Expires in 24 hours.");
+          setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
         }
-        return;
-      }
-
-      // ✅ Check if at least one platform is selected
-      if (!postToFB && !postToIG && !postToTwitter) {
-        alert("Select at least one platform (Facebook, Instagram, or Twitter)");
-        return;
-      }
-
-      // ✅ Handle Twitter-only posts (no page selection needed)
-      if (postToTwitter && !postToFB && !postToIG) {
-        if (!twitterConnected) {
-          alert("❌ Twitter not connected. Please connect Twitter first.");
-          return;
-        }
-
-        // Twitter doesn't support carousels
-        if (cont.type === "carousel") {
-          alert("❌ Twitter doesn't support carousel posts. Please post individual images.");
-          return;
-        }
-
-        setLoading(true);
-        const twitterResult = await postContentToTwitter(cont);
+      } catch (err) {
+        alert("❌ Failed to post story: " + (err.response?.data?.error || err.message));
+      } finally {
         setLoading(false);
+      }
+      return;
+    }
 
-        if (twitterResult.success) {
-          alert(`✅ Posted to Twitter successfully!\n\nView at: ${twitterResult.url}`);
-        } else {
-          alert(`❌ Failed to post to Twitter: ${twitterResult.error}`);
-        }
+    // Check platform selection
+    if (!postToFB && !postToIG && !postToTwitter) {
+      alert("❌ Select at least one platform (Facebook, Instagram, or Twitter)");
+      return;
+    }
+
+    // ✅ SCHEDULE POST
+    if (isScheduling) {
+      if (!scheduledDateTime) {
+        alert("❌ Please select a date and time for scheduling");
         return;
       }
 
-      // Handle Facebook/Instagram posts (require page selection)
-      if (!selectedPage && (postToFB || postToIG)) {
-        alert("Select a Facebook page");
+      const scheduleDate = new Date(scheduledDateTime);
+      if (scheduleDate <= new Date()) {
+        alert("❌ Scheduled time must be in the future");
         return;
       }
 
-      if (postToIG && rateLimits && rateLimits.quota_usage >= 25) {
-        alert("Instagram daily limit reached");
-        return;
-      }
+      const platforms = [];
+      if (postToTwitter) platforms.push("twitter");
+      if (postToFB) platforms.push("facebook");
+      if (postToIG) platforms.push("instagram");
 
-      // ✅ Post to Facebook/Instagram
-      let fbIgResults = { fb: null, ig: null };
+      const hashtagArray = hashtags
+        .split(/[,\s]+/)
+        .filter(tag => tag.trim())
+        .map(tag => tag.replace("#", ""));
+
       setLoading(true);
 
       try {
-        let response;
-        if (cont.type === "carousel") {
-          if (postToTwitter) {
-            alert("⚠️ Note: Carousel posts cannot be posted to Twitter. Will post to FB/IG only.");
-          }
+        const payload = {
+          title: cont.title || "",
+          caption: cont.title || "",
+          platform: platforms,
+          scheduledFor: scheduleDate.toISOString(),
+          hashtags: hashtagArray,
+          type: cont.type,
+          image: cont.image || null,
+          videoUrl: cont.videoUrl || null,
+          pageId: (postToFB || postToIG) ? selectedPage : null
+        };
 
-          response = await api.post("/user/post", {
-            userId: user._id,
-            pageId: selectedPage,
-            title: cont.title || "",
-            type: "carousel",
-            items: cont.items,
-            postToFB,
-            postToIG
-          });
-        } else {
-          response = await api.post("/user/post", {
-            userId: user._id,
-            pageId: selectedPage,
-            title: cont.title || "",
-            type: cont.type,
-            image: cont.image || null,
-            videoUrl: cont.videoUrl || null,
-            postToFB,
-            postToIG
-          });
+        if (cont.type === "carousel") {
+          payload.items = cont.items;
         }
+
+        const response = await api.post("/user/schedule-post", payload);
 
         if (response.data.success) {
-          fbIgResults = { fb: postToFB, ig: postToIG };
+          alert(`✅ Post scheduled for ${scheduleDate.toLocaleString()}!\n\nView in Scheduled Posts page.`);
+          setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
+          setIsScheduling(false);
+          setScheduledDateTime("");
+          setHashtags("");
         }
-      } catch (err) {
-        console.error("FB/IG post error:", err);
+      } catch (error) {
+        alert("❌ Failed to schedule: " + (error.response?.data?.error || error.message));
+      } finally {
+        setLoading(false);
       }
-
-      // ✅ Post to Twitter (if selected and not carousel)
-      let twitterResult = { success: false };
-      if (postToTwitter && cont.type !== "carousel") {
-        if (twitterConnected) {
-          twitterResult = await postContentToTwitter(cont);
-        } else {
-          alert("⚠️ Twitter not connected. Post sent to other platforms only.");
-        }
-      }
-
-      setLoading(false);
-
-      // ✅ Show results
-      const successMsg = [];
-      if (fbIgResults.fb) successMsg.push("Facebook");
-      if (fbIgResults.ig) successMsg.push("Instagram");
-      if (twitterResult.success) successMsg.push("Twitter");
-
-      if (successMsg.length > 0) {
-        alert(`✅ Posted successfully to: ${successMsg.join(", ")}!`);
-        fetchContent();
-        if (postToIG) setTimeout(() => fetchRateLimits(), 2000);
-      } else {
-        alert("❌ Failed to post to any platform");
-      }
-
-    } catch (err) {
-      setLoading(false);
-      alert("Failed: " + (err.response?.data?.error || err.message));
+      return;
     }
+
+    // ✅ IMMEDIATE POST - ONE UNIFIED API CALL
+    
+    // Validate requirements
+    if ((postToFB || postToIG) && !selectedPage) {
+      alert("❌ Please select a Facebook page");
+      return;
+    }
+
+    if (!twitterConnected && postToTwitter) {
+      alert("❌ Twitter not connected. Please connect Twitter first.");
+      return;
+    }
+
+    // Check carousel limitations
+    if (cont.type === "carousel") {
+      if (postToTwitter) {
+        alert("⚠️ Note: Carousel posts cannot be posted to Twitter. Will post to FB/IG only.");
+        // Don't return, just warn and continue with FB/IG
+      }
+    }
+
+    // Check Instagram rate limit
+    if (postToIG && rateLimits && rateLimits.quota_usage >= 25) {
+      alert("❌ Instagram daily limit reached (25 posts)");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const payload = {
+        userId: user._id,
+        title: cont.title || "",
+        type: cont.type,
+        image: cont.image || null,
+        videoUrl: cont.videoUrl || null,
+        postToFB,
+        postToIG,
+        postToTwitter: cont.type === "carousel" ? false : postToTwitter // Disable Twitter for carousel
+      };
+
+      // Add pageId only if posting to FB/IG
+      if (postToFB || postToIG) {
+        payload.pageId = selectedPage;
+      }
+
+      // Add carousel items
+      if (cont.type === "carousel") {
+        payload.items = cont.items;
+      }
+
+      // ✅ ONE API CALL - Posts to ALL selected platforms
+      const response = await api.post("/user/post", payload);
+
+      if (response.data.success) {
+        const results = response.data.results;
+        const platforms = [];
+        
+        if (postToFB && (results.fb?.id || results.fb?.post_id)) platforms.push("Facebook");
+        if (postToIG && results.ig?.id) platforms.push("Instagram");
+        if (postToTwitter && results.twitter?.id) platforms.push("Twitter");
+
+        if (platforms.length > 0) {
+          alert(`✅ Posted successfully to: ${platforms.join(", ")}!`);
+          
+          // Remove from uploaded content UI
+          setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
+          
+          // Refresh Instagram rate limits
+          if (postToIG) {
+            setTimeout(() => fetchRateLimits(), 2000);
+          }
+        } else {
+          // Check for errors
+          const errors = [];
+          if (postToFB && results.fb?.error) errors.push(`FB: ${results.fb.error.message}`);
+          if (postToIG && results.ig?.error) errors.push(`IG: ${results.ig.error.message}`);
+          if (postToTwitter && results.twitter?.error) errors.push(`Twitter: ${results.twitter.error}`);
+          
+          alert("❌ Failed to post:\n" + errors.join("\n"));
+        }
+      } else {
+        alert("❌ Failed to post: " + (response.data.error || "Unknown error"));
+      }
+    } catch (err) {
+      console.error("Post error:", err);
+      alert("❌ Failed to post: " + (err.response?.data?.error || err.message));
+    } finally {
+      setLoading(false);
+    }
+
+  } catch (err) {
+    setLoading(false);
+    alert("❌ Error: " + (err.response?.data?.error || err.message));
   }
+}
+
 
   const buildImageUrl = (img) => {
     if (!img) return "";
@@ -550,121 +581,210 @@ async function postContentToTwitter(cont) {
           >
             <span>📖</span> Story
           </button>
+    
         </div>
 
         {/* Platform Selection - Only for Media & Text */}
         {contentType !== "story" && (
-          <div className="platform-box">
-            <h3>📱 Select Platforms</h3>
+  <div className="platform-box">
+    <h3>📱 Select Platforms</h3>
 
-            {/* ✅ Facebook Checkbox */}
-            <label className={`platform-option ${postToFB ? "active" : ""}`}>
-              <input
-                type="checkbox"
-                checked={postToFB}
-                onChange={(e) => setPostToFB(e.target.checked)}
-              />
-              <span className="icon">📘</span>
-              <span>Facebook Post</span>
-            </label>
+    {/* ✅ YOUR EXISTING FACEBOOK CHECKBOX - KEEP THIS */}
+    <label className={`platform-option ${postToFB ? "active" : ""}`}>
+      <input
+        type="checkbox"
+        checked={postToFB}
+        onChange={(e) => setPostToFB(e.target.checked)}
+      />
+      <span className="icon">📘</span>
+      <span>Facebook Post</span>
+    </label>
 
-            {postToFB && pages.length > 0 && (
-              <select
-                value={selectedPage}
-                onChange={(e) => handlePageChange(e.target.value)}
-                className="page-select"
-              >
-                {pages.map((page) => (
-                  <option key={page.pageId} value={page.pageId}>
-                    {page.pageName} {page.instagramBusinessId ? "📸" : ""}
-                  </option>
-                ))}
-              </select>
-            )}
+    {postToFB && pages.length > 0 && (
+      <select
+        value={selectedPage}
+        onChange={(e) => handlePageChange(e.target.value)}
+        className="page-select"
+      >
+        {pages.map((page) => (
+          <option key={page.pageId} value={page.pageId}>
+            {page.pageName} {page.instagramBusinessId ? "📸" : ""}
+          </option>
+        ))}
+      </select>
+    )}
 
-            {/* ✅ Instagram Checkbox */}
-            <label
-              className={`platform-option ${postToIG ? "active" : ""} ${
-                !postToFB || !currentPageHasIG() ? "disabled" : ""
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={postToIG}
-                disabled={!postToFB || !currentPageHasIG()}
-                onChange={(e) => {
-                  if (!currentPageHasIG()) {
-                    alert("❌ Selected page doesn't have Instagram connected");
-                    return;
-                  }
-                  setPostToIG(e.target.checked);
-                }}
-              />
-              <span className="icon">📸</span>
-              <span>Instagram Post</span>
-              {!postToFB && <small>Select Facebook first</small>}
-              {postToFB && !currentPageHasIG() && <small>No IG linked</small>}
-            </label>
+    {/* ✅ YOUR EXISTING INSTAGRAM CHECKBOX - KEEP THIS */}
+    <label
+      className={`platform-option ${postToIG ? "active" : ""} ${
+        !postToFB || !currentPageHasIG() ? "disabled" : ""
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={postToIG}
+        disabled={!postToFB || !currentPageHasIG()}
+        onChange={(e) => {
+          if (!currentPageHasIG()) {
+            alert("❌ Selected page doesn't have Instagram connected");
+            return;
+          }
+          setPostToIG(e.target.checked);
+        }}
+      />
+      <span className="icon">📸</span>
+      <span>Instagram Post</span>
+      {!postToFB && <small>Select Facebook first</small>}
+      {postToFB && !currentPageHasIG() && <small>No IG linked</small>}
+    </label>
 
-            {postToIG && rateLimits && (
-              <div className="rate-info">
-                <span>
-                  📊 Instagram: {rateLimits.quota_usage}/25 posts today
-                </span>
-                <div className="rate-bar">
-                  <div
-                    style={{ width: `${(rateLimits.quota_usage / 25) * 100}%` }}
-                  />
-                </div>
-              </div>
-            )}
+    {postToIG && rateLimits && (
+      <div className="rate-info">
+        <span>
+          📊 Instagram: {rateLimits.quota_usage}/25 posts today
+        </span>
+        <div className="rate-bar">
+          <div
+            style={{ width: `${(rateLimits.quota_usage / 25) * 100}%` }}
+          />
+        </div>
+      </div>
+    )}
 
-            {/* ✅ ADD: Twitter Checkbox */}
-            <label
-              className={`platform-option ${postToTwitter ? "active" : ""} ${
-                !twitterConnected ? "disabled" : ""
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={postToTwitter}
-                disabled={!twitterConnected}
-                onChange={(e) => {
-                  if (!twitterConnected) {
-                    alert("❌ Twitter not connected. Go to Dashboard to connect Twitter.");
-                    return;
-                  }
-                  setPostToTwitter(e.target.checked);
-                }}
-              />
-              <span className="icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="#1DA1F2" style={{ verticalAlign: 'middle' }}>
-                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                </svg>
-              </span>
-              <span>Twitter Post</span>
-              {twitterConnected && twitterUsername && (
-                <small style={{ color: '#1DA1F2' }}>@{twitterUsername}</small>
-              )}
-              {!twitterConnected && <small style={{ color: '#dc3545' }}>Not connected</small>}
-            </label>
+    {/* ✅ YOUR EXISTING TWITTER CHECKBOX - KEEP THIS */}
+    <label
+      className={`platform-option ${postToTwitter ? "active" : ""} ${
+        !twitterConnected ? "disabled" : ""
+      }`}
+    >
+      <input
+        type="checkbox"
+        checked={postToTwitter}
+        disabled={!twitterConnected}
+        onChange={(e) => {
+          if (!twitterConnected) {
+            alert("❌ Twitter not connected. Go to Dashboard to connect Twitter.");
+            return;
+          }
+          setPostToTwitter(e.target.checked);
+        }}
+      />
+      <span className="icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="#1DA1F2" style={{ verticalAlign: 'middle' }}>
+          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+        </svg>
+      </span>
+      <span>Twitter Post</span>
+      {twitterConnected && twitterUsername && (
+        <small style={{ color: '#1DA1F2' }}>@{twitterUsername}</small>
+      )}
+      {!twitterConnected && <small style={{ color: '#dc3545' }}>Not connected</small>}
+    </label>
 
-            {/* ✅ ADD: Twitter Connection Warning */}
-            {postToTwitter && !twitterConnected && (
-              <div className="warning-box" style={{
-                backgroundColor: '#fff3cd',
-                border: '1px solid #ffc107',
-                padding: '10px',
-                borderRadius: '5px',
-                marginTop: '10px'
-              }}>
-                <span style={{ color: '#856404' }}>
-                  ⚠️ Twitter is not connected. <a href="/" style={{ color: '#1DA1F2' }}>Connect Twitter</a>
-                </span>
-              </div>
-            )}
-          </div>
-        )}
+    {postToTwitter && !twitterConnected && (
+      <div className="warning-box" style={{
+        backgroundColor: '#fff3cd',
+        border: '1px solid #ffc107',
+        padding: '10px',
+        borderRadius: '5px',
+        marginTop: '10px'
+      }}>
+        <span style={{ color: '#856404' }}>
+          ⚠️ Twitter is not connected. <a href="/" style={{ color: '#1DA1F2' }}>Connect Twitter</a>
+        </span>
+      </div>
+    )}
+
+    {/* ⭐⭐⭐ ADD THE SCHEDULING CODE RIGHT HERE - AFTER ALL PLATFORM CHECKBOXES ⭐⭐⭐ */}
+    <div style={{ 
+      borderTop: "1px solid #e0e0e0", 
+      marginTop: "15px", 
+      paddingTop: "15px" 
+    }}>
+      <label className="schedule-toggle" style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "12px",
+        backgroundColor: isScheduling ? "#e3f2fd" : "#f5f5f5",
+        borderRadius: "8px",
+        cursor: "pointer",
+        border: isScheduling ? "2px solid #2196f3" : "2px solid transparent"
+      }}>
+        <input
+          type="checkbox"
+          checked={isScheduling}
+          onChange={(e) => setIsScheduling(e.target.checked)}
+          style={{ width: "20px", height: "20px" }}
+        />
+        <span style={{ fontWeight: "600", color: isScheduling ? "#1976d2" : "#333" }}>
+          📅 Schedule for later
+        </span>
+      </label>
+
+      {isScheduling && (
+        <div style={{ 
+          marginTop: "15px", 
+          padding: "15px", 
+          backgroundColor: "#fff", 
+          borderRadius: "8px",
+          border: "1px solid #e0e0e0"
+        }}>
+          <label style={{ 
+            display: "block", 
+            marginBottom: "8px", 
+            fontWeight: "600",
+            color: "#333"
+          }}>
+            📆 Date & Time *
+          </label>
+          <input
+            type="datetime-local"
+            value={scheduledDateTime}
+            onChange={(e) => setScheduledDateTime(e.target.value)}
+            min={new Date().toISOString().slice(0, 16)}
+            style={{
+              width: "100%",
+              padding: "10px",
+              border: "1px solid #ddd",
+              borderRadius: "6px",
+              fontSize: "14px"
+            }}
+            required
+          />
+
+          <label style={{ 
+            display: "block", 
+            marginTop: "12px",
+            marginBottom: "8px", 
+            fontWeight: "600",
+            color: "#333"
+          }}>
+            🏷️ Hashtags (optional)
+          </label>
+          <input
+            type="text"
+            value={hashtags}
+            onChange={(e) => setHashtags(e.target.value)}
+            placeholder="marketing, social, tech (comma separated)"
+            style={{
+              width: "100%",
+              padding: "10px",
+              border: "1px solid #ddd",
+              borderRadius: "6px",
+              fontSize: "14px"
+            }}
+          />
+          <small style={{ color: "#666", fontSize: "12px", display: "block", marginTop: "5px" }}>
+            Separate with commas or spaces
+          </small>
+        </div>
+      )}
+    </div>
+    {/* ⭐⭐⭐ SCHEDULING CODE ENDS HERE ⭐⭐⭐ */}
+
+  </div>
+)}
 
         {/* Story Settings (unchanged) */}
         {contentType === "story" && (
@@ -928,6 +1048,9 @@ async function postContentToTwitter(cont) {
               </button>
             </form>
           )}
+
+
+          
         </div>
       </div>
 

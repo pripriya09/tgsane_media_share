@@ -1,4 +1,4 @@
-// Dashboard.jsx
+// Dashboard.jsx - UPDATED WITH SCHEDULE LINK
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
@@ -6,14 +6,10 @@ function Dashboard() {
   const navigate = useNavigate();
 
   const handleLogout = () => {
-    // Clear all stored data
     localStorage.removeItem("ms_token");
     localStorage.removeItem("ms_user");
     localStorage.removeItem("ms_pages");
-    
-    // Redirect to login/home page
     navigate("/");
-    
     alert("Logged out successfully");
   };
 
@@ -51,7 +47,7 @@ function Dashboard() {
               e.target.style.color = "#1976d2";
             }}
           >
-            Connect FB
+            🔗 Connect FB
           </Link>
           
           <Link 
@@ -74,7 +70,31 @@ function Dashboard() {
               e.target.style.color = "#1976d2";
             }}
           >
-            Create Post
+            ✏️ Create Post
+          </Link>
+
+          {/* ✅ NEW: Schedule Post Link */}
+          <Link 
+            to="/home/schedule" 
+            style={{ 
+              padding: "10px 15px",
+              textDecoration: "none",
+              color: "#1976d2",
+              backgroundColor: "#fff",
+              borderRadius: "6px",
+              border: "1px solid #ddd",
+              transition: "all 0.2s"
+            }}
+            onMouseOver={e => {
+              e.target.style.backgroundColor = "#1976d2";
+              e.target.style.color = "#fff";
+            }}
+            onMouseOut={e => {
+              e.target.style.backgroundColor = "#fff";
+              e.target.style.color = "#1976d2";
+            }}
+          >
+            📅 Schedule Posts
           </Link>
           
           <Link 
@@ -97,7 +117,7 @@ function Dashboard() {
               e.target.style.color = "#1976d2";
             }}
           >
-            Posts History
+            📊 Posts History
           </Link>
         </div>
       </div>
@@ -119,7 +139,7 @@ function Dashboard() {
         onMouseOver={e => e.target.style.backgroundColor = "#d32f2f"}
         onMouseOut={e => e.target.style.backgroundColor = "#f44336"}
       >
-        Logout
+        🚪 Logout
       </button>
     </nav>
   );

@@ -7,7 +7,11 @@ import {
   postToChannels,
   checkRateLimits,
   getPostStats,  
-  postStory   
+  postStory,
+  createScheduledPost, 
+  getScheduledPosts, 
+  updateScheduledPost, 
+  deleteScheduledPost,
 } from "../controller/userController.js";
 import { ensureAuth } from "../utils/auth.js";
 import Post from "../models/Post.js";
@@ -18,10 +22,12 @@ import {
   handleTwitterCallback,
   disconnectTwitter,
   getTwitterStatus,
-  postToTwitter,
+  // postToTwitter,
   deleteTwitterPost,
   getTwitterPosts
 } from '../controller/twitterController.js';
+
+
 
 const router = express.Router();
 
@@ -91,9 +97,15 @@ router.post('/twitter/disconnect', ensureAuth(), disconnectTwitter);
 router.get('/twitter/status', ensureAuth(), getTwitterStatus);
 
 // Posting
-router.post('/twitter/post', ensureAuth(), upload.single('media'), postToTwitter);
+// router.post('/twitter/post', ensureAuth(), upload.single('media'), postToTwitter);
 router.delete('/twitter/post/:tweetId', ensureAuth(), deleteTwitterPost);
 router.get('/twitter/posts', ensureAuth(), getTwitterPosts);
+
+// post schedule
+router.post("/schedule-post", ensureAuth(), createScheduledPost);
+router.get("/scheduled-posts", ensureAuth(), getScheduledPosts);
+router.put("/schedule-post/:postId", ensureAuth(), updateScheduledPost);
+router.delete("/schedule-post/:postId", ensureAuth(), deleteScheduledPost);
 
 export default router;
 

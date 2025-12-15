@@ -5,6 +5,10 @@ import { v2 as cloudinary } from "cloudinary";
 import streamifier from "streamifier";
 import axios from "axios"
 // import Post from "../models/Post.js"
+import { extractHashtags, extractMentions, formatPostContent } from "../utils/postHelpers.js";
+import { schedule } from "node-cron";
+
+
 const FB_API_VERSION = "v24.0";
 
 export async function connectFacebook(req, res) {
@@ -255,7 +259,8 @@ export async function postToChannels(req, res) {
       type = "image",           // "image" | "video" | "carousel"
       items,                    // For carousel: array of { type: "image"|"video", url: "https://..." }
       postToFB = true,
-      postToIG = true
+      postToIG = true,
+      postToTwitter = false,
     } = req.body;
 
     if (!userId || !pageId) return res.status(400).json({ error: "Missing userId or pageId" });
@@ -266,6 +271,7 @@ console.log("Type:", type);
 console.log("VideoUrl:", videoUrl);
 console.log("Image:", image);
 console.log("VideoBase64 exists?", !!req.body.videoBase64);
+console.log("PostToTwitter:", postToTwitter);  // ✅ ADD
 
 // Force correct type if videoUrl exists
 if (videoUrl && !type) {
@@ -274,15 +280,35 @@ if (videoUrl && !type) {
 }
 
 
+const user = await User.findById(userId);
+if (!user) return res.status(404).json({ error: "User not found" });
 
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ error: "User not found" });
+// ✅ Only require pageId if posting to FB/IG
+if ((postToFB || postToIG) && !pageId) {
+  return res.status(400).json({ error: "Missing pageId for Facebook/Instagram" });
+}
 
-    const page = (user.pages || []).find(p => String(p.pageId) === String(pageId));
-    if (!page) return res.status(400).json({ error: "Page not connected" });
+const page = pageId ? (user.pages || []).find(p => String(p.pageId) === String(pageId)) : null;
 
-    const results = { fb: null, ig: null };
-    const { pageAccessToken, instagramBusinessId } = page;
+if ((postToFB || postToIG) && !page) {
+  return res.status(400).json({ error: "Page not connected" });
+}
+
+const results = { fb: null, ig: null, twitter: null };  // ✅ ADD twitter
+const pageAccessToken = page?.pageAccessToken;
+const instagramBusinessId = page?.instagramBusinessId;
+
+
+
+
+    // const user = await User.findById(userId);
+    // if (!user) return res.status(404).json({ error: "User not found" });
+
+    // const page = (user.pages || []).find(p => String(p.pageId) === String(pageId));
+    // if (!page) return res.status(400).json({ error: "Page not connected" });
+
+    // const results = { fb: null, ig: null };
+    // const { pageAccessToken, instagramBusinessId } = page;
 
     // Helper: retry publish (handles socket hang-ups)
     const publishWithRetry = async (creationId, maxRetries = 3) => {
@@ -561,31 +587,112 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
         }
       }
     }
+
+    if (postToTwitter && user.twitterConnected) {
+      try {
+        const { TwitterApi } = await import('twitter-api-v2');
+        
+        const client = new TwitterApi({
+          appKey: process.env.TWITTER_API_KEY,
+          appSecret: process.env.TWITTER_API_KEY_SECRET,
+          accessToken: user.twitterAccessToken,
+          accessSecret: user.twitterAccessSecret,
+        });
+
+        const tweetData = { text: title || "Check out my post!" };
+
+        // Handle media upload for Twitter
+        if ((image || videoUrl) && type !== "carousel") {
+          try {
+            const mediaUrl = image || videoUrl;
+            
+            // Download media
+            const response = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
+            const buffer = Buffer.from(response.data);
+            
+            // Save to temp file
+            const fs = await import('fs');
+            const path = await import('path');
+            const tempDir = path.join(process.cwd(), "temp");
+            
+            if (!fs.existsSync(tempDir)) {
+              fs.mkdirSync(tempDir, { recursive: true });
+            }
+
+            const ext = type === "video" ? "mp4" : "jpg";
+            const tempPath = path.join(tempDir, `twitter_${Date.now()}.${ext}`);
+            fs.writeFileSync(tempPath, buffer);
+
+            // Upload to Twitter
+            const mediaId = await client.v1.uploadMedia(tempPath);
+            tweetData.media = { media_ids: [mediaId] };
+
+            // Clean up
+            fs.unlinkSync(tempPath);
+            console.log("✅ Twitter media uploaded:", mediaId);
+          } catch (mediaErr) {
+            console.error("❌ Twitter media upload error:", mediaErr);
+            // Continue without media if upload fails
+          }
+        }
+
+        // Post tweet
+        const tweet = await client.v2.tweet(tweetData);
+        results.twitter = { 
+          id: tweet.data.id,
+          url: `https://twitter.com/${user.twitterUsername}/status/${tweet.data.id}`
+        };
+        
+        console.log("✅ Posted to Twitter:", tweet.data.id);
+
+      } catch (twitterErr) {
+        console.error("❌ Twitter post error:", twitterErr);
+        results.twitter = { error: twitterErr.message };
+      }
+    }
+
+
     const Post = (await import("../models/Post.js")).default;
-// AFTER - Add platform field:
-// ✅ Determine which platforms were posted to
-let platforms = [];
-if (postToFB && results.fb?.id) platforms.push('facebook');
-if (postToIG && results.ig?.id) platforms.push('instagram');
 
-const postData = {
-  userId,
-  pageId,
-  title,
-  platform: platforms.length > 0 ? platforms : ['unknown'], // ✅ Array
-  type,
-  image: type === "image" ? image : null,
-  videoUrl: type === "video" ? videoUrl : null,
-  items: type === "carousel" ? items : null,
-  fbPostId: results.fb?.id || results.fb?.post_id || null,
-  igMediaId: results.ig?.id || null,
-  postedAt: new Date()
-};
+    // ✅ Determine which platforms were SUCCESSFULLY posted to
+    let platforms = [];
+    if (postToFB && (results.fb?.id || results.fb?.post_id)) platforms.push('facebook');
+    if (postToIG && results.ig?.id) platforms.push('instagram');
+    if (postToTwitter && results.twitter?.id) platforms.push('twitter');
+
+    // ✅ If no successful posts, don't save to DB
+    if (platforms.length === 0) {
+      return res.status(500).json({ 
+        success: false, 
+        error: "Failed to post to any platform",
+        results 
+      });
+    }
+
+    const postData = {
+      userId,
+      pageId: pageId || null,
+      title,
+      platform: platforms,  // ✅ This will be ['facebook'], ['twitter'], or ['facebook', 'twitter'], etc.
+      type,
+      image: type === "image" ? image : null,
+      videoUrl: type === "video" ? videoUrl : null,
+      items: type === "carousel" ? items : null,
+      fbPostId: results.fb?.id || results.fb?.post_id || null,
+      igMediaId: results.ig?.id || null,
+      tweetId: results.twitter?.id || null,  // ✅ ADD
+      status: "posted",
+      postedAt: new Date()
+    };
+
     const savedPost = await Post.create(postData);
-    console.log("FINAL POST SAVED TO DB:", savedPost._id, "Type:", type, "Items:", savedPost.items?.length || 0);
+    console.log("✅ POST SAVED TO DB:", savedPost._id, "Platforms:", platforms);
 
-
-    return res.json({ success: true, results });
+    return res.json({ 
+      success: true, 
+      results,
+      post: savedPost 
+    });
 
   } catch (err) {
     console.error("postToChannels error:", err);
@@ -787,3 +894,188 @@ const savedPost = await Post.create({
   }
 }
 
+
+
+// ----------------------------schedule post 
+
+
+
+// ✅ NEW: Create scheduled post
+export async function createScheduledPost(req, res) {
+  try {
+    const userId = req.user?.userId;
+    const { 
+      title, 
+      caption, 
+      platform, 
+      scheduledFor, 
+      hashtags,
+      type,
+      image,
+      videoUrl,
+      pageId
+    } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // Validate scheduled time is in future
+    const scheduleDate = new Date(scheduledFor);
+    if (scheduleDate <= new Date()) {
+      return res.status(400).json({
+        error: "Scheduled time must be in the future"
+      });
+    }
+
+    // Extract hashtags from caption if not provided
+    const extractedHashtags = hashtags || extractHashtags(caption);
+    
+    // Extract mentions
+    const extractedMentions = extractMentions(caption, platform);
+
+    const Post = (await import("../models/Post.js")).default;
+    
+    const post = await Post.create({
+      userId,
+      pageId: pageId || null,
+      title,
+      caption,
+      platform: Array.isArray(platform) ? platform : [platform],
+      type: type || "image",
+      hashtags: extractedHashtags,
+      mentions: extractedMentions,
+      status: "scheduled",
+      scheduledFor: scheduleDate,
+      image,
+      videoUrl
+    });
+
+    return res.json({
+      success: true,
+      message: "Post scheduled successfully",
+      post
+    });
+
+  } catch (err) {
+    console.error("createScheduledPost error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// ✅ NEW: Get scheduled posts
+export async function getScheduledPosts(req, res) {
+  try {
+    const userId = req.user?.userId;
+    const { status } = req.query;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const Post = (await import("../models/Post.js")).default;
+    
+    const query = { userId };
+    if (status) {
+      query.status = status;
+    } else {
+      // Default: show scheduled and draft posts
+      query.status = { $in: ["scheduled", "draft"] };
+    }
+
+    const posts = await Post.find(query)
+      .sort({ scheduledFor: 1 })
+      .lean();
+
+    return res.json({
+      success: true,
+      count: posts.length,
+      posts
+    });
+
+  } catch (err) {
+    console.error("getScheduledPosts error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// ✅ NEW: Update scheduled post
+export async function updateScheduledPost(req, res) {
+  try {
+    const userId = req.user?.userId;
+    const { postId } = req.params;
+    const updates = req.body;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const Post = (await import("../models/Post.js")).default;
+    const post = await Post.findOne({ _id: postId, userId });
+
+    if (!post) {
+      return res.status(404).json({ error: "Post not found" });
+    }
+
+    if (post.status === "posted") {
+      return res.status(400).json({
+        error: "Cannot update already posted content"
+      });
+    }
+
+    // Update fields
+    Object.keys(updates).forEach(key => {
+      if (key !== "_id" && key !== "userId") {
+        post[key] = updates[key];
+      }
+    });
+
+    post.updatedAt = new Date();
+    await post.save();
+
+    return res.json({
+      success: true,
+      message: "Post updated successfully",
+      post
+    });
+
+  } catch (err) {
+    console.error("updateScheduledPost error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// ✅ NEW: Delete scheduled post
+export async function deleteScheduledPost(req, res) {
+  try {
+    const userId = req.user?.userId;
+    const { postId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const Post = (await import("../models/Post.js")).default;
+    const post = await Post.findOne({ _id: postId, userId });
+
+    if (!post) {
+      return res.status(404).json({ error: "Post not found" });
+    }
+
+    if (post.status === "posted") {
+      post.status = "deleted";
+      await post.save();
+    } else {
+      await post.deleteOne();
+    }
+
+    return res.json({
+      success: true,
+      message: "Post deleted successfully"
+    });
+
+  } catch (err) {
+    console.error("deleteScheduledPost error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+}

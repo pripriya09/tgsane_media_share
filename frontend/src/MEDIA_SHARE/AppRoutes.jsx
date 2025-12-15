@@ -35,7 +35,7 @@ import LogMedia from './LogMedia';
 import CreatePost from './CreatePost';
 import PostsHistory from './PostsHistory';
 import TwitterCallback from './TwitterCallback'; // ✅ ADD THIS
-
+import SchedulePost from './SchedulePost'
 // Protected Route Component
 function ProtectedRoute({ children, requireAdmin = false }) {
   const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
@@ -61,7 +61,7 @@ function AppRoutes() {
 
         {/* ✅ ADD: Twitter OAuth Callback Route (outside protected routes) */}
         <Route path="/auth/twitter/callback" element={<TwitterCallback />} />
-
+      
         {/* Admin Routes */}
         <Route 
           path="/admin/dashboard" 
@@ -84,6 +84,7 @@ function AppRoutes() {
           <Route index element={<LogMedia />} />
           <Route path="connect" element={<LogMedia />} />
           <Route path="create" element={<CreatePost />} />
+          <Route path="schedule" element={<SchedulePost />} />
           <Route path="history" element={<PostsHistory />} />
         </Route>
 

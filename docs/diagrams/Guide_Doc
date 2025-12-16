@@ -1,24 +1,107 @@
-my-fb-ig-connect/ # root folder (git repo)
-├─ README.md # summary (root)
-├─ CONNECT_GUIDE.md # full guide (root)
-├─ CHANGELOG.md # history (root)
-├─ .gitignore # root .gitignore
-├─ LICENSE # root license
-├─ docs/ # optional: screenshot or additional docs
-│ └─ assets/
-├─ backend/ # backend server code
-│ ├─ package.json
-│ ├─ server.js (or app.js / uploadShare.js)
-│ ├─ controllers/
-│ ├─ routes/
-│ ├─ controllers/sendEmail.js
-│ ├─ controllers/uploadShare.js
-│ └─ .env # store App ID / App Secret / tokens here (DO NOT commit)
-└─ frontend/ # frontend (React/Vite/Next) for testing & production
-├─ package.json
-├─ src/
-│ ├─ main.jsx
-│ ├─ App.jsx
-│ └─ components/
-├─ public/
-└─ README_FRONTEND.md # instructions for frontend local testing
+
+##  Summary of Updates-------------->
+All three files now include:
+
+README.md ✅
+✅ Complete feature list (FB, IG, Twitter, scheduling, repost, media library)
+
+✅ Full project structure
+
+✅ Setup instructions for backend and frontend
+
+✅ All environment variables
+
+✅ Usage guide for all features
+
+✅ Deployment instructions
+
+✅ Troubleshooting section
+
+✅ API rate limits information
+
+✅ Security notes
+
+CONNECT_GUIDE.md ✅
+✅ Facebook & Instagram setup (complete)
+
+✅ Twitter setup (complete)
+
+✅ HTTPS local development guide
+
+✅ API workflows for all platforms
+
+✅ Detailed troubleshooting
+
+✅ Quick reference section
+
+CHANGELOG.md ✅
+✅ Version 7.1.0 (platform selection fix)
+
+✅ Version 7.0.0 (Twitter integration)
+
+✅ Version 6.0.0 (Repost functionality)
+
+✅ Version 5.0.0 (Post scheduling)
+
+✅ Version 4.0.0 (Media library)
+
+✅ Version 3.0.0 (Posts history)
+
+✅ Version 2.0.0 (Token auto-refresh)
+
+✅ Version 1.0.0 (Initial release)
+
+✅ Migration guides
+
+✅ Development notes
+
+## 📁 Project Structure  = ============>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+├── backend/
+│ ├──>> controllers/
+│ │ ├── userController.js # User auth, posts, Facebook/Instagram
+│ │ ├── twitterController.js # Twitter OAuth and posting
+│ │ └── adminController.js # Admin functions
+│ ├──>> models/
+│ │ ├── User.js # User schema
+│ │ ├── Post.js # Post schema
+│ │ ├── PageToken.js # Facebook page tokens
+│ │ └── UserToken.js # User OAuth tokens
+│ ├──>> routes/
+│ │ ├── userRoute.js # User API routes
+│ │ └── adminRoute.js # Admin API routes
+│ ├──>>middleware/utils/
+│ │ |── auth.js # Authentication middleware
+│ | |__postHelper.js
+│ │ ├── tokenService.js # Token refresh logic
+│ │ ├── cronRefresh.js # Scheduled token refresh
+│ │ ├── cryptoStore.js # Token encryption
+│ │ |── cloudinaryHelper.js # Media upload helper
+| | |__postScheduler.js
+│ |
+| |__>>app.js # Express server
+│
+├── frontend/
+│ ├── src/
+│ │ ├── MEDIA_SHARE/
+│ │ │ ├── Login.jsx # Login page (site + Facebook)
+│ │ │ ├── Dashboard.jsx # User dashboard
+│ │ │ ├── CreatePost.jsx # Post creation form
+│ │ │ ├── PostsHistory.jsx # View all posts
+│ │ │ ├── LogMedia.jsx # Media library
+│ │ │ ├── TwitterConnect.jsx # Twitter connection
+│ │ │ ├── TwitterCallback.jsx # Twitter OAuth callback
+│ │ │ └── AdminDashboard.jsx # Admin panel
+│ │ | |__Display.jsx
+| | | |_Home.jsx
+| | | |
+│ │ │ └── api.jsx # API helper functions
+│ │ └── AppRoutes.jsx # React Router setup
+│ └── Main.jsx   # i am not using app.jsx,content.jsx, etc other then these
+| |__index.html  # save facebook sdk
+| |_package.json
+| |__package-lock_json
+│
+├── CONNECT_GUIDE.md # Detailed setup instructions
+├── CHANGELOG.md # Version history
+└── README.md # This file

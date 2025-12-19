@@ -1,5 +1,5 @@
 // Dashboard.jsx - UPDATED WITH SCHEDULE LINK
-import React from 'react';
+import React, { useEffect} from "react";
 import { Link, useNavigate } from 'react-router-dom';
 
 function Dashboard() {
@@ -13,6 +13,14 @@ function Dashboard() {
     alert("Logged out successfully");
   };
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('linkedin_connected') === 'true') {
+      alert('✅ LinkedIn connected successfully!');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+  
   return (
     <nav style={{ 
       width: "200px",

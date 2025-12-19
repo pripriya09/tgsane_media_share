@@ -1,4 +1,4 @@
-// LogMedia.jsx - Complete with Facebook AND Twitter Support
+// LogMedia.jsx - Complete with Popup Windows for Twitter & LinkedIn
 import React, { useEffect, useState } from "react";
 import api from "./api";
 
@@ -10,10 +10,15 @@ function LogMedia() {
   const [showTutorial, setShowTutorial] = useState(false);
   const [hasSeenTutorial, setHasSeenTutorial] = useState(false);
 
-  // ✅ Twitter states
+  // Twitter states
   const [twitterConnected, setTwitterConnected] = useState(false);
   const [twitterUsername, setTwitterUsername] = useState("");
   const [twitterLoading, setTwitterLoading] = useState(false);
+
+  // LinkedIn states
+  const [linkedInConnected, setLinkedInConnected] = useState(false);
+  const [linkedInName, setLinkedInName] = useState("");
+  const [linkedInLoading, setLinkedInLoading] = useState(false);
 
   useEffect(() => {
     // Check tutorial
@@ -27,7 +32,11 @@ function LogMedia() {
     // Load user profile
     loadUserProfile();
     loadConnectedPages();
-    checkTwitterConnection(); // ✅ Check Twitter status
+    checkTwitterConnection();
+    checkLinkedInConnection();
+
+    // ✅ Listen for popup window messages
+    window.addEventListener('message', handleOAuthMessage);
 
     // Load Facebook SDK
     (function (d, s, id) {
@@ -47,7 +56,40 @@ function LogMedia() {
         version: "v24.0",
       });
     };
+
+    return () => {
+      window.removeEventListener('message', handleOAuthMessage);
+    };
   }, []);
+
+  // ✅ Handle messages from popup windows
+  const handleOAuthMessage = (event) => {
+    // Security: validate origin
+    if (event.origin !== window.location.origin) return;
+     // ✅ For development, accept from any origin
+    // ⚠️ In production, validate: if (event.origin !== window.location.origin) return;
+    console.log('Received message:', event.data);
+
+    if (event.data.type === 'TWITTER_CONNECTED') {
+      setTwitterConnected(true);
+      setTwitterUsername(event.data.username || '');
+      setTwitterLoading(false);
+      alert('✅ Twitter connected successfully!');
+    } else if (event.data.type === 'TWITTER_ERROR') {
+      setTwitterLoading(false);
+      alert('❌ Twitter connection failed: ' + event.data.error);
+    }  else if (event.data.type === 'LINKEDIN_CONNECTED') {
+      console.log('LinkedIn connected!', event.data.name);
+      setLinkedInConnected(true);
+      setLinkedInName(event.data.name || '');
+      setLinkedInLoading(false);
+      alert('✅ LinkedIn connected successfully!');
+    } else if (event.data.type === 'LINKEDIN_ERROR') {
+      console.log('LinkedIn error:', event.data.error);
+      setLinkedInLoading(false);
+      alert('❌ LinkedIn connection failed: ' + event.data.error);
+    }
+  };
 
   const loadUserProfile = () => {
     try {
@@ -73,7 +115,6 @@ function LogMedia() {
     }
   };
 
-  // ✅ Check Twitter connection status using api.js
   const checkTwitterConnection = async () => {
     try {
       const response = await api.get('/user/twitter/status');
@@ -87,15 +128,37 @@ function LogMedia() {
     }
   };
 
-  // ✅ Connect Twitter using api.js
+  const checkLinkedInConnection = async () => {
+    try {
+      const response = await api.get('/user/linkedin/status');
+      
+      if (response.data.connected) {
+        setLinkedInConnected(true);
+        setLinkedInName(response.data.name || '');
+      }
+    } catch (error) {
+      console.error('Error checking LinkedIn status:', error);
+    }
+  };
+
+  // ✅ Connect Twitter with popup
   const handleTwitterConnect = async () => {
     setTwitterLoading(true);
     try {
       const response = await api.post('/user/twitter/auth/request');
 
       if (response.data.success) {
-        // Redirect to Twitter authorization
-        window.location.href = response.data.authUrl;
+        // Open popup window
+        const width = 600;
+        const height = 700;
+        const left = (window.screen.width - width) / 2;
+        const top = (window.screen.height - height) / 2;
+        
+        window.open(
+          response.data.authUrl,
+          'Twitter OAuth',
+          `width=${width},height=${height},left=${left},top=${top},toolbar=no,menubar=no`
+        );
       } else {
         alert('Failed to connect Twitter: ' + response.data.message);
         setTwitterLoading(false);
@@ -107,7 +170,28 @@ function LogMedia() {
     }
   };
 
-  // ✅ Disconnect Twitter using api.js
+  // ✅ Connect LinkedIn with popup
+  const handleLinkedInConnect = async () => {
+    setLinkedInLoading(true);
+    try {
+      const response = await api.get('/user/linkedin/auth');
+  
+      if (response.data.authUrl) {
+        // ✅ Instead of popup, redirect current window
+        window.location.href = response.data.authUrl;
+        // User will be redirected back after OAuth
+      } else {
+        alert('Failed to get LinkedIn authorization URL');
+        setLinkedInLoading(false);
+      }
+    } catch (error) {
+      console.error('LinkedIn connect error:', error);
+      alert('Error connecting LinkedIn: ' + (error.response?.data?.error || error.message));
+      setLinkedInLoading(false);
+    }
+  };
+  
+
   const handleTwitterDisconnect = async () => {
     if (!confirm('Are you sure you want to disconnect Twitter?')) return;
 
@@ -119,7 +203,6 @@ function LogMedia() {
         setTwitterConnected(false);
         setTwitterUsername('');
         
-        // Update localStorage
         const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
         const updatedUser = { ...user, twitterConnected: false };
         localStorage.setItem("ms_user", JSON.stringify(updatedUser));
@@ -136,6 +219,33 @@ function LogMedia() {
     }
   };
 
+  const handleLinkedInDisconnect = async () => {
+    if (!confirm('Are you sure you want to disconnect LinkedIn?')) return;
+
+    setLinkedInLoading(true);
+    try {
+      const response = await api.post('/user/linkedin/disconnect');
+
+      if (response.data.success) {
+        setLinkedInConnected(false);
+        setLinkedInName('');
+        
+        const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
+        const updatedUser = { ...user, linkedInConnected: false };
+        localStorage.setItem("ms_user", JSON.stringify(updatedUser));
+        
+        alert('✅ LinkedIn disconnected successfully');
+      } else {
+        alert('Failed to disconnect LinkedIn');
+      }
+    } catch (error) {
+      console.error('LinkedIn disconnect error:', error);
+      alert('Error disconnecting LinkedIn: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setLinkedInLoading(false);
+    }
+  };
+
   const closeTutorial = () => {
     setShowTutorial(false);
     setHasSeenTutorial(true);
@@ -146,7 +256,6 @@ function LogMedia() {
     setShowTutorial(true);
   };
 
-  // ✅ Facebook Login Handler (KEPT - YOUR ORIGINAL CODE)
   const handleFBLogin = () => {
     if (!window.FB) {
       alert("Facebook SDK not loaded");
@@ -161,19 +270,16 @@ function LogMedia() {
 
           (async () => {
             try {
-              // Connect Facebook to existing user account
               const res = await api.post("/user/connect/facebook", { 
                 userAccessToken,
                 userId: userProfile._id 
               });
 
               if (res.data.success) {
-                // Update user profile to show FB connected
                 const updatedUser = { ...userProfile, facebookConnected: true };
                 localStorage.setItem("ms_user", JSON.stringify(updatedUser));
                 setUserProfile(updatedUser);
 
-                // Load pages
                 const pages = res.data.pages || [];
                 localStorage.setItem("ms_pages", JSON.stringify(pages));
                 setConnectedPages(pages);
@@ -197,7 +303,7 @@ function LogMedia() {
 
   return (
     <div style={{ padding: 16 }}>
-      {/* TUTORIAL MODAL */}
+      {/* TUTORIAL MODAL - keep your existing code */}
       {showTutorial && (
         <div style={{
           position: "fixed",
@@ -267,7 +373,7 @@ function LogMedia() {
         </div>
       )}
 
-      {/* USER PROFILE SECTION */}
+      {/* USER PROFILE SECTION - keep your existing code */}
       {userProfile ? (
         <div style={{ marginBottom: 30, padding: 20, background: "#f0f2f5", borderRadius: 8 }}>
           <div>
@@ -277,12 +383,12 @@ function LogMedia() {
             <p style={{ margin: 0, color: "#666", fontSize: 12 }}>
               {userProfile.facebookConnected ? "✅ Facebook Connected" : "❌ Facebook Not Connected"}
               <br />
-              {/* ✅ Twitter status line */}
               {twitterConnected ? `✅ Twitter Connected (@${twitterUsername})` : "❌ Twitter Not Connected"}
+              <br />
+              {linkedInConnected ? `✅ LinkedIn Connected (${linkedInName})` : "❌ LinkedIn Not Connected"}
             </p>
           </div>
 
-          {/* Connected Pages (only show if facebookConnected) */}
           {userProfile.facebookConnected && connectedPages.length > 0 && (
             <div style={{ marginTop: 15, paddingTop: 15, borderTop: "1px solid #ddd" }}>
               <strong>📄 Connected Pages:</strong>
@@ -302,13 +408,12 @@ function LogMedia() {
       ) : (
         <div style={{ textAlign: "center", marginBottom: 30 }}>
           <h2>Connect Your Social Media</h2>
-          <p style={{ color: "#666" }}>Connect Facebook, Instagram & Twitter</p>
+          <p style={{ color: "#666" }}>Connect Facebook, Instagram, Twitter & LinkedIn</p>
         </div>
       )}
 
       {/* ACTION BUTTONS */}
       <div style={{ textAlign: "center", display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
-        {/* ✅ Facebook Button (YOUR ORIGINAL) */}
         <button
           onClick={handleFBLogin}
           style={{
@@ -325,7 +430,6 @@ function LogMedia() {
           {userProfile?.facebookConnected ? "📘 Reconnect / Add More Pages" : "📘 Connect Facebook"}
         </button>
 
-        {/* ✅ Twitter Button (NEW) */}
         <button
           onClick={twitterConnected ? handleTwitterDisconnect : handleTwitterConnect}
           disabled={twitterLoading}
@@ -344,7 +448,24 @@ function LogMedia() {
           {twitterLoading ? "⏳ Loading..." : twitterConnected ? "🐦 Disconnect Twitter" : "🐦 Connect Twitter"}
         </button>
 
-        {/* ✅ Tutorial Button (YOUR ORIGINAL) */}
+        <button
+          onClick={linkedInConnected ? handleLinkedInDisconnect : handleLinkedInConnect}
+          disabled={linkedInLoading}
+          style={{
+            padding: "14px 32px",
+            fontSize: 16,
+            background: linkedInConnected ? "#42b72a" : "#0077B5",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
+            cursor: linkedInLoading ? "not-allowed" : "pointer",
+            fontWeight: 600,
+            opacity: linkedInLoading ? 0.6 : 1,
+          }}
+        >
+          {linkedInLoading ? "⏳ Loading..." : linkedInConnected ? "🔗 Disconnect LinkedIn" : "🔗 Connect LinkedIn"}
+        </button>
+
         <button
           onClick={openTutorial}
           style={{
@@ -362,7 +483,7 @@ function LogMedia() {
         </button>
       </div>
 
-      {/* ✅ Twitter Info Box (NEW - Shows when connected) */}
+      {/* Info boxes - keep your existing code */}
       {twitterConnected && (
         <div style={{
           marginTop: 20,
@@ -380,6 +501,27 @@ function LogMedia() {
           </strong>
           <p style={{ margin: "8px 0 0 0", fontSize: 14, color: "#666" }}>
             ✅ Ready to post to Twitter
+          </p>
+        </div>
+      )}
+
+      {linkedInConnected && (
+        <div style={{
+          marginTop: 20,
+          padding: 15,
+          background: "#e7f4ff",
+          border: "1px solid #0077B5",
+          borderRadius: 8,
+          textAlign: "center"
+        }}>
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="#0077B5" style={{ verticalAlign: 'middle', marginRight: 10 }}>
+            <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+          </svg>
+          <strong style={{ color: "#0077B5", fontSize: 18 }}>
+            {linkedInName}
+          </strong>
+          <p style={{ margin: "8px 0 0 0", fontSize: 14, color: "#666" }}>
+            ✅ Ready to post to LinkedIn
           </p>
         </div>
       )}

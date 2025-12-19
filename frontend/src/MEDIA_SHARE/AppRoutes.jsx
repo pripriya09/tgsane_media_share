@@ -35,6 +35,7 @@ import LogMedia from './LogMedia';
 import CreatePost from './CreatePost';
 import PostsHistory from './PostsHistory';
 import TwitterCallback from './TwitterCallback'; // ✅ ADD THIS
+import LinkedInCallback from './LinkedInCallback'; // ✅ ADD THIS
 import SchedulePost from './SchedulePost'
 // Protected Route Component
 function ProtectedRoute({ children, requireAdmin = false }) {
@@ -58,10 +59,10 @@ function AppRoutes() {
         {/* Main entry point - Login page */}
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Navigate to="/login" />} />
-
-        {/* ✅ ADD: Twitter OAuth Callback Route (outside protected routes) */}
-        <Route path="/auth/twitter/callback" element={<TwitterCallback />} />
-      
+        
+      {/* ✅ OAuth Callback Routes (PUBLIC - outside protected routes) */}
+      <Route path="/auth/twitter/callback" element={<TwitterCallback />} />
+        <Route path="/auth/linkedin/callback" element={<LinkedInCallback />} />
         {/* Admin Routes */}
         <Route 
           path="/admin/dashboard" 

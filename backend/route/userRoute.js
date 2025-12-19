@@ -28,15 +28,20 @@ import {
 } from '../controller/twitterController.js';
 
 
+// ✅ LinkedIn controller
+import {
+  initiateLinkedInAuth,
+  exchangeLinkedInCode, 
+  getLinkedInStatus,
+  disconnectLinkedIn,
+  // postToLinkedIn
+} from "../controller/linkedinController.js";
+
 
 const router = express.Router();
-
-// ✅ ADD: Configure multer for file uploads
 const upload = multer({ 
-  dest: 'uploads/',
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
-  }
+  dest: "uploads/",
+  limits: { fileSize: 10 * 1024 * 1024 }
 });
 
 // Facebook routes
@@ -92,7 +97,7 @@ router.post("/story", ensureAuth(), postStory);
 // === TWITTER ROUTES ✅ ===
 // Authentication
 router.post('/twitter/auth/request', ensureAuth(), requestTwitterAuth);
-router.post('/twitter/auth/callback', ensureAuth(), handleTwitterCallback);
+router.post('/twitter/auth/callback', handleTwitterCallback);
 router.post('/twitter/disconnect', ensureAuth(), disconnectTwitter);
 router.get('/twitter/status', ensureAuth(), getTwitterStatus);
 
@@ -100,6 +105,16 @@ router.get('/twitter/status', ensureAuth(), getTwitterStatus);
 // router.post('/twitter/post', ensureAuth(), upload.single('media'), postToTwitter);
 router.delete('/twitter/post/:tweetId', ensureAuth(), deleteTwitterPost);
 router.get('/twitter/posts', ensureAuth(), getTwitterPosts);
+
+
+
+
+// ✅ LinkedIn routes
+router.get("/linkedin/auth", ensureAuth(), initiateLinkedInAuth);
+router.post("/linkedin/callback", ensureAuth(), exchangeLinkedInCode); // ✅ Changed to POST
+router.get("/linkedin/status", ensureAuth(), getLinkedInStatus);
+router.post("/linkedin/disconnect", ensureAuth(), disconnectLinkedIn);
+
 
 // post schedule
 router.post("/schedule-post", ensureAuth(), createScheduledPost);

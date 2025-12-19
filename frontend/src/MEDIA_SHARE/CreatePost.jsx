@@ -36,6 +36,12 @@ function CreatePost() {
   const [twitterConnected, setTwitterConnected] = useState(false);
   const [twitterUsername, setTwitterUsername] = useState("");
 
+// ✅ LinkedIn state
+const [postToLinkedIn, setPostToLinkedIn] = useState(false);
+const [linkedInConnected, setLinkedInConnected] = useState(false);
+const [linkedInName, setLinkedInName] = useState("");
+
+
 
     //  Scheduling states
     const [isScheduling, setIsScheduling] = useState(false);
@@ -106,9 +112,10 @@ const fonts = [
   useEffect(() => {
     fetchContent();
     loadPagesForUser();
-    checkTwitterConnection(); // ✅ ADD THIS
+    checkTwitterConnection();
+    checkLinkedInConnection(); // ✅ ADD THIS
   }, []);
-
+  
   useEffect(() => {
     if (selectedPage && postToIG) {
       fetchRateLimits();
@@ -138,6 +145,35 @@ const checkTwitterConnection = async () => {
     console.error('Error checking Twitter status:', error);
   }
 };
+
+// ✅ Check LinkedIn connection
+const checkLinkedInConnection = async () => {
+  try {
+    const response = await api.get('/user/linkedin/status');
+    if (response.data.connected) {
+      setLinkedInConnected(true);
+      setLinkedInName(response.data.name || '');
+    }
+  } catch (error) {
+    console.error('Error checking LinkedIn status:', error);
+  }
+};
+
+
+// ✅ Connect to LinkedIn
+const connectLinkedIn = async () => {
+  try {
+    const res = await api.get('/user/linkedin/auth');
+    if (res.data.authUrl) {
+      window.location.href = res.data.authUrl;
+    }
+  } catch (err) {
+    console.error('LinkedIn connect error:', err);
+    alert('Failed to connect LinkedIn');
+  }
+};
+
+
 
   const drawTextCanvas = () => {
     const canvas = canvasRef.current;
@@ -378,11 +414,12 @@ const checkTwitterConnection = async () => {
         return;
       }
   
-      // Check platform selection
-      if (!postToFB && !postToIG && !postToTwitter) {
-        alert("❌ Select at least one platform (Facebook, Instagram, or Twitter)");
-        return;
-      }
+   // Check platform selection
+if (!postToFB && !postToIG && !postToTwitter && !postToLinkedIn) {
+  alert("Select at least one platform (Facebook, Instagram, Twitter, or LinkedIn)");
+  return;
+}
+
   
       // ✅ SCHEDULE POST
       if (isScheduling) {
@@ -401,7 +438,9 @@ const checkTwitterConnection = async () => {
         if (postToTwitter) platforms.push("twitter");
         if (postToFB) platforms.push("facebook");
         if (postToIG) platforms.push("instagram");
-  
+        if (postToLinkedIn) platforms.push("linkedin");
+
+        
         const hashtagArray = hashtags
           .split(/[,\s]+/)
           .filter(tag => tag.trim())
@@ -470,6 +509,12 @@ const checkTwitterConnection = async () => {
         }
       }
   
+      // ✅ Check LinkedIn connection
+if (postToLinkedIn && !linkedInConnected) {
+  alert("LinkedIn not connected. Please connect LinkedIn first.");
+  return;
+}
+
       // Check Instagram rate limit
       if (postToIG && rateLimits && rateLimits.quota_usage >= 25) {
         alert("❌ Instagram daily limit reached (25 posts)");
@@ -487,7 +532,8 @@ const checkTwitterConnection = async () => {
           videoUrl: cont.videoUrl || null,
           postToFB,
           postToIG,
-          postToTwitter: cont.type === "carousel" ? false : postToTwitter
+          postToTwitter: cont.type === "carousel" ? false : postToTwitter,
+          postToLinkedIn,
         };
   
         // ✅ FIXED: Only add pageId if posting to FB or IG
@@ -508,7 +554,7 @@ const checkTwitterConnection = async () => {
           if (postToFB && (results.fb?.id || results.fb?.post_id)) platforms.push("Facebook");
           if (postToIG && results.ig?.id) platforms.push("Instagram");
           if (postToTwitter && results.twitter?.id) platforms.push("Twitter");
-  
+          if (postToLinkedIn && results.linkedin?.id) platforms.push("LinkedIn");
           if (platforms.length > 0) {
             alert(`✅ Posted successfully to: ${platforms.join(", ")}!`);
             
@@ -734,6 +780,52 @@ const checkTwitterConnection = async () => {
                 </span>
               </div>
             )}
+
+           {/* ✅ LINKEDIN CHECKBOX - Complete */}
+<label 
+  className={`platform-option ${postToLinkedIn ? 'active' : ''} ${!linkedInConnected ? 'disabled' : ''}`}
+>
+  <input
+    type="checkbox"
+    checked={postToLinkedIn}
+    disabled={!linkedInConnected}
+    onChange={(e) => {
+      if (!linkedInConnected) {
+        alert('LinkedIn not connected. Go to Dashboard → Connect LinkedIn.');
+        return;
+      }
+      setPostToLinkedIn(e.target.checked);
+    }}
+  />
+  <span className="icon">🔗</span>
+  <span>Post to LinkedIn</span>
+  {linkedInConnected && linkedInName && (
+    <small style={{ color: '#0077B5' }}>{linkedInName}</small>
+  )}
+  {!linkedInConnected && (
+    <small style={{ color: '#dc3545' }}>Not connected</small>
+  )}
+</label>
+
+{/* Warning if LinkedIn not connected but user tries to check */}
+{postToLinkedIn && !linkedInConnected && (
+  <div className="warning-box" style={{ 
+    backgroundColor: '#fff3cd', 
+    border: '1px solid #ffc107', 
+    padding: '10px', 
+    borderRadius: '5px', 
+    marginTop: '10px' 
+  }}>
+    <span style={{ color: '#856404' }}>
+      ⚠️ LinkedIn is not connected. 
+      <a href="/home/connect" style={{ color: '#0077B5' }}> Connect LinkedIn</a>
+    </span>
+  </div>
+)}
+
+
+
+
   
             {/* ✅ SCHEDULING SECTION */}
             <div style={{ 

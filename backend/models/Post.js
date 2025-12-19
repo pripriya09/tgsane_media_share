@@ -14,7 +14,7 @@ const PostSchema = new mongoose.Schema({
   
   platform: {
     type: [String],
-    enum: ["facebook", "instagram", "twitter"],
+    enum: ["facebook", "instagram", "twitter","linkedin"],
     required: true,
     default: []
   },
@@ -43,7 +43,7 @@ const PostSchema = new mongoose.Schema({
   fbPostId: String,
   igMediaId: String,
   tweetId: String,
-  
+  linkedinPostId: String,   
   // ✅ NEW: Scheduling fields
   status: { 
     type: String, 

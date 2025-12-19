@@ -25,6 +25,16 @@ const UserSchema = new mongoose.Schema({
   role: { type: String, enum: ["superAdmin", "admin", "agent", "user"], default: "user" },
   createdAt: { type: Date, default: Date.now },
   
+   linkedin: {
+    accessToken: String,      // encrypted
+    userId: String,           // LinkedIn member id (sub)
+    name: String,
+    email: String,
+    picture: String,
+    connected: { type: Boolean, default: false },
+    tokenExpiry: Date
+  },
+  
   // Connected Pages (only if Facebook connected)
   pages: [{
     pageId: String,

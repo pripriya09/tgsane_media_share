@@ -7,7 +7,7 @@ import axios from "axios"
 // import Post from "../models/Post.js"
 import { extractHashtags, extractMentions, formatPostContent } from "../utils/postHelpers.js";
 import { schedule } from "node-cron";
-
+import {postToLinkedInHelper} from "../utils/linkedinService.js"
 
 const FB_API_VERSION = "v24.0";
 
@@ -261,43 +261,46 @@ export async function postToChannels(req, res) {
       postToFB = true,
       postToIG = true,
       postToTwitter = false,
+      postToLinkedIn = false,
     } = req.body;
 
-    if (!userId || !pageId) return res.status(400).json({ error: "Missing userId or pageId" });
+   
+    // ✅ Only validate userId (required for all posts)
+    if (!userId) {
+      return res.status(400).json({ error: "Missing userId" });
+    }
 
-// userController.js - After extracting req.body
-console.log("📥 RECEIVED POST REQUEST:");
-console.log("Type:", type);
-console.log("VideoUrl:", videoUrl);
-console.log("Image:", image);
-console.log("VideoBase64 exists?", !!req.body.videoBase64);
-console.log("PostToTwitter:", postToTwitter);  // ✅ ADD
+    // Force correct type if videoUrl exists
+    if (videoUrl && !type) {
+      type = "video";
+      console.log("⚠️ Type was missing, forcing to 'video' because videoUrl exists");
+    }
 
-// Force correct type if videoUrl exists
-if (videoUrl && !type) {
-  type = "video";
-  console.log("⚠️ Type was missing, forcing to 'video' because videoUrl exists");
-}
+    console.log("📥 RECEIVED POST REQUEST:");
+    console.log("Type:", type);
+    console.log("VideoUrl:", videoUrl);
+    console.log("Image:", image);
+    console.log("VideoBase64 exists?", !!req.body.videoBase64);
+    console.log("PostToTwitter:", postToTwitter);
+    console.log("PostToLinkedIn:", postToLinkedIn);
 
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
 
-const user = await User.findById(userId);
-if (!user) return res.status(404).json({ error: "User not found" });
+    // ✅ Only require pageId if posting to FB/IG
+    if ((postToFB || postToIG) && !pageId) {
+      return res.status(400).json({ error: "Missing pageId for Facebook/Instagram" });
+    }
 
-// ✅ Only require pageId if posting to FB/IG
-if ((postToFB || postToIG) && !pageId) {
-  return res.status(400).json({ error: "Missing pageId for Facebook/Instagram" });
-}
+    const page = pageId ? (user.pages || []).find(p => String(p.pageId) === String(pageId)) : null;
 
-const page = pageId ? (user.pages || []).find(p => String(p.pageId) === String(pageId)) : null;
+    if ((postToFB || postToIG) && !page) {
+      return res.status(400).json({ error: "Page not connected" });
+    }
 
-if ((postToFB || postToIG) && !page) {
-  return res.status(400).json({ error: "Page not connected" });
-}
-
-const results = { fb: null, ig: null, twitter: null };  // ✅ ADD twitter
-const pageAccessToken = page?.pageAccessToken;
-const instagramBusinessId = page?.instagramBusinessId;
-
+    const results = { fb: null, ig: null, twitter: null, linkedin: null };
+    const pageAccessToken = page?.pageAccessToken;
+    const instagramBusinessId = page?.instagramBusinessId;
 
 
 
@@ -588,6 +591,9 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
       }
     }
 
+
+    // ============================== POST TO TWITTER =====================
+
     if (postToTwitter && user.twitterConnected) {
       try {
         const { TwitterApi } = await import('twitter-api-v2');
@@ -652,20 +658,45 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
     }
 
 
+    //============================POST TO LINKEDIN
+
+
+if (postToLinkedIn) {
+      try {
+        const liResult = await postToLinkedInHelper({
+          userId,
+          text: title || "",
+          imageUrl: image || null
+        });
+        results.linkedin = { id: liResult.id };
+        console.log("✅ Posted to LinkedIn:", liResult.id);
+      } catch (liErr) {
+        console.error("❌ LinkedIn post error:", liErr.response?.data || liErr.message);
+        results.linkedin = {
+          error:
+            liErr.response?.data?.message ||
+            liErr.response?.data ||
+            liErr.message ||
+            "LinkedIn post failed"
+        };
+      }
+    }
+
     const Post = (await import("../models/Post.js")).default;
 
     // ✅ Determine which platforms were SUCCESSFULLY posted to
     let platforms = [];
-    if (postToFB && (results.fb?.id || results.fb?.post_id)) platforms.push('facebook');
-    if (postToIG && results.ig?.id) platforms.push('instagram');
-    if (postToTwitter && results.twitter?.id) platforms.push('twitter');
+    if (postToFB && (results.fb?.id || results.fb?.post_id)) platforms.push("facebook");
+    if (postToIG && results.ig?.id) platforms.push("instagram");
+    if (postToTwitter && results.twitter?.id) platforms.push("twitter");
+    if (postToLinkedIn && results.linkedin?.id) platforms.push("linkedin"); // ✅
 
-    // ✅ If no successful posts, don't save to DB
+    // If no successful posts, don't save to DB
     if (platforms.length === 0) {
-      return res.status(500).json({ 
-        success: false, 
+      return res.status(500).json({
+        success: false,
         error: "Failed to post to any platform",
-        results 
+        results
       });
     }
 
@@ -673,14 +704,15 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
       userId,
       pageId: pageId || null,
       title,
-      platform: platforms,  // ✅ This will be ['facebook'], ['twitter'], or ['facebook', 'twitter'], etc.
+      platform: platforms, // ['facebook','instagram','twitter','linkedin']
       type,
       image: type === "image" ? image : null,
       videoUrl: type === "video" ? videoUrl : null,
       items: type === "carousel" ? items : null,
       fbPostId: results.fb?.id || results.fb?.post_id || null,
       igMediaId: results.ig?.id || null,
-      tweetId: results.twitter?.id || null,  // ✅ ADD
+      tweetId: results.twitter?.id || null,
+      linkedinPostId: results.linkedin?.id || null, // ✅ NEW
       status: "posted",
       postedAt: new Date()
     };
@@ -688,12 +720,11 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
     const savedPost = await Post.create(postData);
     console.log("✅ POST SAVED TO DB:", savedPost._id, "Platforms:", platforms);
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       results,
-      post: savedPost 
+      post: savedPost
     });
-
   } catch (err) {
     console.error("postToChannels error:", err);
     return res.status(500).json({ error: err.message });

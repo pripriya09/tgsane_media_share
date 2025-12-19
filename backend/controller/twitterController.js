@@ -4,6 +4,9 @@ import User from '../models/User.js';
 import Post from '../models/Post.js';
 import fs from 'fs';
 
+// ✅ In-memory store for OAuth sessions (use Redis in production)
+const oauthSessions = new Map();
+
 // Initialize Twitter client with app credentials
 const getAppClient = () => {
   return new TwitterApi({
@@ -25,19 +28,30 @@ const getUserClient = (user) => {
 // Request Twitter OAuth token
 export const requestTwitterAuth = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user._id;
     const twitterClient = getAppClient();
 
     // Generate OAuth 1.0a authorization link
     const authLink = await twitterClient.generateAuthLink(
-      process.env.TWITTER_CALLBACK_URL || 'http://localhost:5174/auth/twitter/callback',
+      process.env.TWITTER_CALLBACK_URL || 'https://localhost:5174/auth/twitter/callback',
       { linkMode: 'authorize' }
     );
 
-    // Save oauth_token_secret temporarily
-    await User.findByIdAndUpdate(userId, {
-      twitterOauthTokenSecret: authLink.oauth_token_secret
+    // ✅ Store session data with oauth_token as key
+    oauthSessions.set(authLink.oauth_token, {
+      userId: userId,
+      oauth_token_secret: authLink.oauth_token_secret,
+      timestamp: Date.now()
     });
+
+    // Clean up old sessions (older than 10 minutes)
+    for (const [token, data] of oauthSessions.entries()) {
+      if (Date.now() - data.timestamp > 10 * 60 * 1000) {
+        oauthSessions.delete(token);
+      }
+    }
+
+    console.log('✅ Twitter auth session created:', authLink.oauth_token);
 
     res.json({
       success: true,
@@ -59,23 +73,36 @@ export const requestTwitterAuth = async (req, res) => {
 export const handleTwitterCallback = async (req, res) => {
   try {
     const { oauth_token, oauth_verifier } = req.body;
-    const userId = req.user.userId;
 
-    const user = await User.findById(userId);
-
-    if (!user || !user.twitterOauthTokenSecret) {
+    if (!oauth_token || !oauth_verifier) {
       return res.status(400).json({
         success: false,
-        message: 'OAuth session not found. Please try again.'
+        message: 'Missing OAuth parameters'
       });
     }
+
+    // ✅ Retrieve session data using oauth_token
+    const session = oauthSessions.get(oauth_token);
+
+    if (!session) {
+      console.error('❌ OAuth session not found:', oauth_token);
+      return res.status(400).json({
+        success: false,
+        message: 'OAuth session expired or invalid. Please try connecting again.'
+      });
+    }
+
+    const { userId, oauth_token_secret } = session;
+
+    // Clean up - remove used session
+    oauthSessions.delete(oauth_token);
 
     // Create client with temporary tokens
     const client = new TwitterApi({
       appKey: process.env.TWITTER_API_KEY,
       appSecret: process.env.TWITTER_API_KEY_SECRET,
       accessToken: oauth_token,
-      accessSecret: user.twitterOauthTokenSecret,
+      accessSecret: oauth_token_secret,
     });
 
     // Exchange for permanent access tokens
@@ -87,15 +114,17 @@ export const handleTwitterCallback = async (req, res) => {
       'user.fields': ['username', 'name', 'profile_image_url']
     });
 
-    // Update user with Twitter connection (matches your schema) ✅
-    user.twitterConnected = true;
-    user.twitterId = twitterUser.data.id;
-    user.twitterAccessToken = accessToken;
-    user.twitterAccessSecret = accessSecret;
-    user.twitterUsername = twitterUser.data.username;
-    user.twitterName = twitterUser.data.name;
-    user.twitterOauthTokenSecret = undefined; // Clear temporary secret
-    await user.save();
+    // Update user with Twitter connection
+    await User.findByIdAndUpdate(userId, {
+      twitterConnected: true,
+      twitterId: twitterUser.data.id,
+      twitterAccessToken: accessToken,
+      twitterAccessSecret: accessSecret,
+      twitterUsername: twitterUser.data.username,
+      twitterName: twitterUser.data.name,
+    });
+
+    console.log('✅ Twitter connected for user:', userId, 'as @' + twitterUser.data.username);
 
     res.json({
       success: true,
@@ -120,7 +149,7 @@ export const handleTwitterCallback = async (req, res) => {
 // Disconnect Twitter account
 export const disconnectTwitter = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user._id;
 
     await User.findByIdAndUpdate(userId, {
       twitterConnected: false,
@@ -129,7 +158,6 @@ export const disconnectTwitter = async (req, res) => {
       twitterAccessSecret: undefined,
       twitterUsername: undefined,
       twitterName: undefined,
-      twitterOauthTokenSecret: undefined
     });
 
     res.json({
@@ -150,7 +178,7 @@ export const disconnectTwitter = async (req, res) => {
 // Get Twitter connection status
 export const getTwitterStatus = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user._id;
     const user = await User.findById(userId).select('twitterConnected twitterUsername twitterName');
 
     res.json({
@@ -170,110 +198,11 @@ export const getTwitterStatus = async (req, res) => {
   }
 };
 
-// // Post to Twitter (matches your Post schema) ✅
-// export const postToTwitter = async (req, res) => {
-//   try {
-//     const { caption, title } = req.body; // Use caption instead of text
-//     const userId = req.user.userId;
-//     const mediaFile = req.file;
-
-//     const user = await User.findById(userId);
-
-//     if (!user.twitterConnected) {
-//       return res.status(400).json({
-//         success: false,
-//         message: 'Twitter account not connected'
-//       });
-//     }
-
-//     // Create user's Twitter client
-//     const client = getUserClient(user);
-
-//     const tweetText = caption || title || 'Posted via Social Media Manager';
-//     let tweetData = { text: tweetText };
-
-//     // Upload media if provided
-//     let mediaUrl = null;
-//     if (mediaFile) {
-//       try {
-//         const mediaId = await client.v1.uploadMedia(mediaFile.path);
-//         tweetData.media = { media_ids: [mediaId] };
-//         mediaUrl = mediaFile.filename; // Store filename
-//       } catch (uploadError) {
-//         console.error('Twitter Media Upload Error:', uploadError);
-//       } finally {
-//         // Clean up uploaded file
-//         if (fs.existsSync(mediaFile.path)) {
-//           fs.unlinkSync(mediaFile.path);
-//         }
-//       }
-//     }
-
-//     // Post tweet
-//     const tweet = await client.v2.tweet(tweetData);
-
-//     // Save to database (matches your Post schema) ✅
-//     // const post = new Post({
-//     //   userId: userId,
-//     //   platform: 'twitter',
-//     //   type: mediaFile ? 'image' : 'tweet', // Set type based on media
-//     //   caption: tweetText,
-//     //   title: title || null,
-//     //   image: mediaUrl,
-//     //   tweetId: tweet.data.id, // Twitter-specific ID
-//     //   status: 'posted',
-//     //   postedAt: new Date()
-//     // });
-
-//     const post = new Post({
-//         userId: userId,
-//         title: caption.substring(0, 100),
-//         platform: ['twitter'], // ✅ Array
-//         type: mediaFile ? (mediaFile.mimetype.startsWith('video') ? 'video' : 'image') : 'text',
-//         image: mediaFile && !mediaFile.mimetype.startsWith('video') ? mediaFile.path : null,
-//         videoUrl: mediaFile && mediaFile.mimetype.startsWith('video') ? mediaFile.path : null,
-//         tweetId: tweet.data.id,
-//         status: 'posted',
-//         postedAt: new Date(),
-//       });
-      
-
-//     await post.save();
-
-//     res.json({
-//       success: true,
-//       message: 'Posted to Twitter successfully',
-//       data: {
-//         tweetId: tweet.data.id,
-//         text: tweet.data.text,
-//         url: `https://twitter.com/${user.twitterUsername}/status/${tweet.data.id}`,
-//         postDbId: post._id
-//       }
-//     });
-
-//   } catch (error) {
-//     console.error('Twitter Post Error:', error);
-
-//     // Clean up file if exists
-//     if (req.file && fs.existsSync(req.file.path)) {
-//       fs.unlinkSync(req.file.path);
-//     }
-
-//     res.status(500).json({
-//       success: false,
-//       message: error.data?.detail || 'Failed to post to Twitter',
-//       error: error.message
-//     });
-//   }
-// };
-
 // Delete tweet
-// twitterController.js - UPDATE deleteTwitterPost
-
 export const deleteTwitterPost = async (req, res) => {
   try {
     const { tweetId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user._id;
 
     const user = await User.findById(userId);
 
@@ -289,12 +218,12 @@ export const deleteTwitterPost = async (req, res) => {
     // Delete tweet from Twitter
     await client.v2.deleteTweet(tweetId);
 
-    // ✅ UPDATE: platform is now an array
+    // Update database
     await Post.findOneAndUpdate(
       { 
         userId, 
         tweetId: tweetId, 
-        platform: { $in: ['twitter'] }  // ✅ Use $in for array
+        platform: { $in: ['twitter'] }
       },
       { status: 'deleted' }
     );
@@ -314,16 +243,14 @@ export const deleteTwitterPost = async (req, res) => {
   }
 };
 
-// twitterController.js - UPDATE getTwitterPosts
-
+// Get Twitter posts
 export const getTwitterPosts = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user.userId || req.user._id;
 
-    // ✅ UPDATE: platform is now an array
     const posts = await Post.find({
       userId,
-      platform: { $in: ['twitter'] },  // ✅ Use $in for array
+      platform: { $in: ['twitter'] },
       status: 'posted'
     }).sort({ postedAt: -1 });
 
@@ -342,4 +269,3 @@ export const getTwitterPosts = async (req, res) => {
     });
   }
 };
-

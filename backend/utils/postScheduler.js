@@ -1,5 +1,4 @@
-// utils/postScheduler.js - FIXED Twitter media upload
-
+// utils/postScheduler.js - ADD LinkedIn support
 import cron from "node-cron";
 import User from "../models/User.js";
 import { TwitterApi } from "twitter-api-v2";
@@ -8,6 +7,9 @@ import { formatPostContent } from "./postHelpers.js";
 import fs from "fs";
 import path from "path";
 import axios from "axios";
+
+// ✅ Import LinkedIn helper
+import { postToLinkedInHelper } from "../controller/linkedinController.js";
 
 const FB_API_VERSION = "v24.0";
 
@@ -20,7 +22,6 @@ export const startPostScheduler = () => {
       console.error("Scheduler Error:", error);
     }
   });
-  
   console.log("✅ Post scheduler started - checking every minute");
 };
 
@@ -41,7 +42,6 @@ async function processScheduledPosts() {
     for (const post of scheduledPosts) {
       await publishPost(post);
     }
-
   } catch (error) {
     console.error("Process Scheduled Posts Error:", error);
   }
@@ -76,6 +76,9 @@ async function publishPost(post) {
           result = await publishToFacebook(user, post, formattedContent);
         } else if (platform === "instagram" && user.facebookConnected) {
           result = await publishToInstagram(user, post, formattedContent);
+        } else if (platform === "linkedin" && user.linkedin?.connected) {
+          // ✅ ADD LINKEDIN SUPPORT
+          result = await publishToLinkedIn(user, post, formattedContent);
         }
 
         if (result && result.success) {
@@ -93,7 +96,6 @@ async function publishPost(post) {
             publishedAt: new Date()
           });
         }
-
       } catch (platformError) {
         console.error(`Error publishing to ${platform}:`, platformError);
         platformResults.push({
@@ -111,7 +113,7 @@ async function publishPost(post) {
     post.platformResults = platformResults;
     post.status = allSuccess ? "posted" : (anySuccess ? "posted" : "failed");
     post.postedAt = anySuccess ? new Date() : null;
-    
+
     if (!allSuccess && post.retryCount < post.maxRetries) {
       post.retryCount += 1;
       post.scheduledFor = new Date(Date.now() + 5 * 60 * 1000);
@@ -119,9 +121,7 @@ async function publishPost(post) {
     }
 
     await post.save();
-
     console.log(`✅ Post ${post._id} published - Success: ${allSuccess}`);
-
   } catch (error) {
     console.error(`Failed to publish post ${post._id}:`, error);
     post.status = "failed";
@@ -129,7 +129,7 @@ async function publishPost(post) {
   }
 }
 
-// ✅ FIXED: Twitter with proper media handling
+// Twitter publishing
 async function publishToTwitter(user, post, content) {
   try {
     const client = new TwitterApi({
@@ -140,24 +140,20 @@ async function publishToTwitter(user, post, content) {
     });
 
     const tweetData = { text: content };
-    
-    // ✅ Handle media upload
+
     if (post.image || post.videoUrl) {
       try {
         const mediaUrl = post.image || post.videoUrl;
         console.log(`📥 Downloading media from: ${mediaUrl}`);
-        
-        // Create temp directory
+
         const tempDir = path.join(process.cwd(), "temp");
         if (!fs.existsSync(tempDir)) {
           fs.mkdirSync(tempDir, { recursive: true });
         }
 
-        // Download media
         const response = await axios.get(mediaUrl, {
           responseType: 'arraybuffer'
         });
-        
         const buffer = Buffer.from(response.data);
         const isVideo = post.type === "video" || post.videoUrl;
         const ext = isVideo ? "mp4" : "jpg";
@@ -165,26 +161,19 @@ async function publishToTwitter(user, post, content) {
         
         fs.writeFileSync(tempPath, buffer);
         console.log(`💾 Saved to: ${tempPath}`);
-        
-        // Upload to Twitter
-        console.log(`📤 Uploading to Twitter...`);
+
         const mediaId = await client.v1.uploadMedia(tempPath);
         tweetData.media = { media_ids: [mediaId] };
-        
-        // Clean up
+
         fs.unlinkSync(tempPath);
         console.log(`✅ Twitter media uploaded: ${mediaId}`);
-        
       } catch (mediaErr) {
         console.error("❌ Twitter media upload error:", mediaErr);
-        // Continue without media
       }
     }
 
-    // Post tweet
     const tweet = await client.v2.tweet(tweetData);
     post.tweetId = tweet.data.id;
-
     console.log(`✅ Tweet posted: ${tweet.data.id}`);
 
     return {
@@ -192,7 +181,6 @@ async function publishToTwitter(user, post, content) {
       postId: tweet.data.id,
       url: `https://twitter.com/${user.twitterUsername}/status/${tweet.data.id}`
     };
-
   } catch (error) {
     console.error("❌ Twitter publish error:", error);
     return {
@@ -202,14 +190,13 @@ async function publishToTwitter(user, post, content) {
   }
 }
 
-// Publish to Facebook
+// Facebook publishing
 async function publishToFacebook(user, post, content) {
   try {
     const page = user.pages?.find(p => String(p.pageId) === String(post.pageId));
     if (!page) throw new Error("Page not found");
 
     const endpoint = `https://graph.facebook.com/${FB_API_VERSION}/${page.pageId}/feed`;
-    
     const params = new URLSearchParams({
       message: content,
       access_token: page.pageAccessToken
@@ -225,16 +212,13 @@ async function publishToFacebook(user, post, content) {
     });
 
     const json = await resp.json();
-    
     if (json.error) throw new Error(json.error.message);
 
     post.fbPostId = json.id;
-
     return {
       success: true,
       postId: json.id
     };
-
   } catch (error) {
     return {
       success: false,
@@ -243,7 +227,7 @@ async function publishToFacebook(user, post, content) {
   }
 }
 
-// Publish to Instagram
+// Instagram publishing
 async function publishToInstagram(user, post, content) {
   try {
     const page = user.pages?.find(p => String(p.pageId) === String(post.pageId));
@@ -281,16 +265,41 @@ async function publishToInstagram(user, post, content) {
     if (publishJson.error) throw new Error(publishJson.error.message);
 
     post.igMediaId = publishJson.id;
-
     return {
       success: true,
       postId: publishJson.id
     };
-
   } catch (error) {
     return {
       success: false,
       error: error.message
+    };
+  }
+}
+
+// ✅ NEW: LinkedIn publishing
+async function publishToLinkedIn(user, post, content) {
+  try {
+    console.log(`📤 Publishing to LinkedIn for user: ${user._id}`);
+
+    const result = await postToLinkedInHelper({
+      userId: user._id,
+      text: content,
+      imageUrl: post.image || null
+    });
+
+    post.linkedinPostId = result.id;
+    console.log(`✅ LinkedIn post created: ${result.id}`);
+
+    return {
+      success: true,
+      postId: result.id
+    };
+  } catch (error) {
+    console.error("❌ LinkedIn publish error:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to post to LinkedIn"
     };
   }
 }

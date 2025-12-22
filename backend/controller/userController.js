@@ -661,26 +661,31 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
     //============================POST TO LINKEDIN
 
 
-if (postToLinkedIn) {
-      try {
-        const liResult = await postToLinkedInHelper({
-          userId,
-          text: title || "",
-          imageUrl: image || null
-        });
-        results.linkedin = { id: liResult.id };
-        console.log("✅ Posted to LinkedIn:", liResult.id);
-      } catch (liErr) {
-        console.error("❌ LinkedIn post error:", liErr.response?.data || liErr.message);
-        results.linkedin = {
-          error:
-            liErr.response?.data?.message ||
-            liErr.response?.data ||
-            liErr.message ||
-            "LinkedIn post failed"
-        };
-      }
-    }
+if (postToLinkedIn && user.linkedin?.connected) {
+  try {
+    console.log("📱 Preparing LinkedIn post...");
+    console.log("Type:", type);
+    console.log("Image:", image);
+    console.log("Video:", videoUrl);
+    
+    const liResult = await postToLinkedInHelper({
+      userId,
+      text: title || "",
+      imageUrl: type === "image" ? image : null, // ✅ Only send image if type is image
+      videoUrl: type === "video" ? videoUrl : null // ✅ Add video support (future)
+    });
+    
+    results.linkedin = { id: liResult.id };
+    console.log("✅ Posted to LinkedIn:", liResult.id);
+    
+  } catch (liErr) {
+    console.error("❌ LinkedIn post error:", liErr);
+    results.linkedin = {
+      error: liErr.message || "LinkedIn post failed"
+    };
+  }
+}
+
 
     const Post = (await import("../models/Post.js")).default;
 
@@ -1110,3 +1115,70 @@ export async function deleteScheduledPost(req, res) {
     return res.status(500).json({ error: err.message });
   }
 }
+
+
+
+
+export const getUserProfile = async (req, res) => {
+  try {
+    const userId = req.user.userId || req.user._id;
+    
+    const user = await User.findById(userId).select(
+      'username email facebookConnected twitterConnected linkedin pages'
+    );
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'User not found' 
+      });
+    }
+
+    // Build profile response
+    const profile = {
+      username: user.username,
+      email: user.email,
+      
+      // Facebook/Instagram (via pages)
+      facebook: {
+        connected: user.facebookConnected || false,
+        pages: user.pages?.map(page => ({
+          pageId: page.pageId,
+          pageName: page.pageName,
+          pageProfilePic: page.pageProfilePic,
+          hasInstagram: !!page.instagramBusinessId,
+          instagramUsername: page.instagramUsername
+        })) || []
+      },
+      
+      // Twitter
+      twitter: {
+        connected: user.twitterConnected || false,
+        username: user.twitterUsername,
+        profileImage: user.twitterProfileImage,
+        name: user.twitterName
+      },
+      
+      // LinkedIn
+      linkedin: {
+        connected: user.linkedin?.connected || false,
+        name: user.linkedin?.name,
+        email: user.linkedin?.email,
+        picture: user.linkedin?.picture,
+        userId: user.linkedin?.userId
+      }
+    };
+
+    return res.json({ 
+      success: true, 
+      profile 
+    });
+    
+  } catch (error) {
+    console.error('Get user profile error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+};

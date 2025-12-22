@@ -14,19 +14,24 @@ function PostsHistory() {
   const [newCaption, setNewCaption] = useState("");
   const [postToFB, setPostToFB] = useState(true);
   const [postToIG, setPostToIG] = useState(true);
-  const [postToTwitter, setPostToTwitter] = useState(false); // ✅ ADD
+  const [postToTwitter, setPostToTwitter] = useState(false);
+  const [postToLinkedIn, setPostToLinkedIn] = useState(false); // ✅ ADD
   const [reposting, setReposting] = useState(false);
   const [selectedPage, setSelectedPage] = useState(""); 
   const [postToStory, setPostToStory] = useState(false);
   
-  // ✅ ADD: Missing Twitter state variables
   const [twitterConnected, setTwitterConnected] = useState(false);
   const [twitterUsername, setTwitterUsername] = useState("");
+  
+  // ✅ ADD: LinkedIn state
+  const [linkedInConnected, setLinkedInConnected] = useState(false);
+  const [linkedInName, setLinkedInName] = useState("");
 
   useEffect(() => {
     loadPosts();
     loadPages();
     checkTwitterConnection();
+    checkLinkedInConnection(); // ✅ ADD
   }, []);
 
   // ✅ Check Twitter connection
@@ -39,6 +44,19 @@ function PostsHistory() {
       }
     } catch (error) {
       console.error('Error checking Twitter status:', error);
+    }
+  }
+
+  // ✅ ADD: Check LinkedIn connection
+  async function checkLinkedInConnection() {
+    try {
+      const response = await api.get('/user/linkedin/status');
+      if (response.data.connected) {
+        setLinkedInConnected(true);
+        setLinkedInName(response.data.name || '');
+      }
+    } catch (error) {
+      console.error('Error checking LinkedIn status:', error);
     }
   }
 
@@ -90,6 +108,7 @@ function PostsHistory() {
     setPostToFB(!!post.fbPostId);
     setPostToIG(!!post.igMediaId && pageHasIG);
     setPostToTwitter(!!post.tweetId);
+    setPostToLinkedIn(!!post.linkedinPostId); // ✅ ADD
     setPostToStory(false);
     setShowRepostModal(true);
   }
@@ -101,110 +120,112 @@ function PostsHistory() {
     setPostToFB(true);
     setPostToIG(true);
     setPostToTwitter(false);
+    setPostToLinkedIn(false); // ✅ ADD
     setPostToStory(false);
     setSelectedPage("");
     setReposting(false);
   }
 
+  async function handleRepostSubmit() {
+    if (!selectedPost) return;
 
-async function handleRepostSubmit() {
-  if (!selectedPost) return;
-
-  const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
-  if (!user?._id) {
-    alert("❌ You must be logged in to repost");
-    return;
-  }
-
-  if (!postToFB && !postToIG && !postToStory && !postToTwitter) {
-    alert("❌ Please select at least one platform");
-    return;
-  }
-
-  if ((postToFB || postToIG || postToStory) && !selectedPage) {
-    alert("❌ Please select a Facebook page");
-    return;
-  }
-
-  setReposting(true);
-
-  try {
-    let response;
-
-    // ✅ Handle Instagram Story
-    if (postToStory || selectedPost.type === "story") {
-      const page = pages.find(p => p.pageId === selectedPage);
-      if (!page?.instagramBusinessId) {
-        alert("❌ Instagram not connected to this page");
-        setReposting(false);
-        return;
-      }
-
-      response = await api.post("/user/story", {
-        userId: user._id,
-        pageId: selectedPage,
-        type: selectedPost.videoUrl ? "video" : "image",
-        image: selectedPost.image || null,
-        videoUrl: selectedPost.videoUrl || null
-      });
+    const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
+    if (!user?._id) {
+      alert("❌ You must be logged in to repost");
+      return;
     }
-    // ✅ Handle ALL Regular Posts (including carousel) - ONE API CALL
-    else {
-      const payload = {
-        userId: user._id,
-        title: newCaption,
-        type: selectedPost.type,
-        image: selectedPost.image || null,
-        videoUrl: selectedPost.videoUrl || null,
-        postToFB,
-        postToIG,
-        postToTwitter: selectedPost.type === "carousel" ? false : postToTwitter // Disable Twitter for carousel
-      };
 
-      // Add pageId only if posting to FB/IG
-      if (postToFB || postToIG) {
-        payload.pageId = selectedPage;
-      }
+    // ✅ UPDATE: Include LinkedIn in validation
+    if (!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn) {
+      alert("❌ Please select at least one platform");
+      return;
+    }
 
-      // Add carousel items
-      if (selectedPost.type === "carousel") {
-        payload.items = selectedPost.items;
-        
-        if (postToTwitter) {
-          alert("⚠️ Note: Carousel posts cannot be posted to Twitter. Will post to FB/IG only.");
+    if ((postToFB || postToIG || postToStory) && !selectedPage) {
+      alert("❌ Please select a Facebook page");
+      return;
+    }
+
+    setReposting(true);
+
+    try {
+      let response;
+
+      // Handle Instagram Story
+      if (postToStory || selectedPost.type === "story") {
+        const page = pages.find(p => p.pageId === selectedPage);
+        if (!page?.instagramBusinessId) {
+          alert("❌ Instagram not connected to this page");
+          setReposting(false);
+          return;
         }
+
+        response = await api.post("/user/story", {
+          userId: user._id,
+          pageId: selectedPage,
+          type: selectedPost.videoUrl ? "video" : "image",
+          image: selectedPost.image || null,
+          videoUrl: selectedPost.videoUrl || null
+        });
+      }
+      // Handle ALL Regular Posts
+      else {
+        const payload = {
+          userId: user._id,
+          title: newCaption,
+          type: selectedPost.type,
+          image: selectedPost.image || null,
+          videoUrl: selectedPost.videoUrl || null,
+          postToFB,
+          postToIG,
+          postToTwitter: selectedPost.type === "carousel" ? false : postToTwitter,
+          postToLinkedIn: selectedPost.type === "carousel" ? false : postToLinkedIn // ✅ ADD
+        };
+
+        // Add pageId only if posting to FB/IG
+        if (postToFB || postToIG) {
+          payload.pageId = selectedPage;
+        }
+
+        // Add carousel items
+        if (selectedPost.type === "carousel") {
+          payload.items = selectedPost.items;
+          
+          if (postToTwitter || postToLinkedIn) {
+            alert("⚠️ Note: Carousel posts can only be posted to Facebook/Instagram.");
+          }
+        }
+
+        response = await api.post("/user/post", payload);
       }
 
-      // ✅ ONE API CALL - Posts to ALL selected platforms
-      response = await api.post("/user/post", payload);
-    }
+      if (response.data.success) {
+        const platforms = [];
+        
+        if (postToStory || selectedPost.type === 'story') {
+          platforms.push("Instagram Story");
+        } else {
+          const results = response.data.results;
+          if (postToFB && (results?.fb?.id || results?.fb?.post_id)) platforms.push("Facebook");
+          if (postToIG && results?.ig?.id) platforms.push("Instagram");
+          if (postToTwitter && results?.twitter?.id) platforms.push("Twitter");
+          if (postToLinkedIn && results?.linkedin?.id) platforms.push("LinkedIn"); // ✅ ADD
+        }
 
-    if (response.data.success) {
-      const platforms = [];
-      
-      if (postToStory || selectedPost.type === 'story') {
-        platforms.push("Instagram Story");
+        const postType = postToStory || selectedPost.type === 'story' ? 'Story' : 'Post';
+        alert(`✅ ${postType} reposted successfully to: ${platforms.join(", ")}!`);
+        loadPosts();
+        closeRepostModal();
       } else {
-        const results = response.data.results;
-        if (postToFB && (results?.fb?.id || results?.fb?.post_id)) platforms.push("Facebook");
-        if (postToIG && results?.ig?.id) platforms.push("Instagram");
-        if (postToTwitter && results?.twitter?.id) platforms.push("Twitter");
+        alert("❌ Failed to repost: " + (response.data.error || "Unknown error"));
       }
-
-      const postType = postToStory || selectedPost.type === 'story' ? 'Story' : 'Post';
-      alert(`✅ ${postType} reposted successfully to: ${platforms.join(", ")}!`);
-      loadPosts();
-      closeRepostModal();
-    } else {
-      alert("❌ Failed to repost: " + (response.data.error || "Unknown error"));
+    } catch (err) {
+      console.error("Repost failed:", err);
+      alert("❌ Repost failed: " + (err.response?.data?.error || err.message));
+    } finally {
+      setReposting(false);
     }
-  } catch (err) {
-    console.error("Repost failed:", err);
-    alert("❌ Repost failed: " + (err.response?.data?.error || err.message));
-  } finally {
-    setReposting(false);
   }
-}
 
   function getPageName(pageId) {
     if (!pageId) return "";
@@ -222,13 +243,16 @@ async function handleRepostSubmit() {
     if (post.fbPostId) return `https://www.facebook.com/${post.fbPostId}`;
     if (post.igMediaId) return `https://www.instagram.com/p/${post.igMediaId}/`;
     if (post.tweetId) return `https://twitter.com/i/web/status/${post.tweetId}`;
+    // LinkedIn posts don't have direct URLs
     return null;
   }
 
+  // ✅ UPDATE: Add LinkedIn badge
   function renderPostedTo(post) {
     const hasFB = !!post.fbPostId;
     const hasIG = !!post.igMediaId;
     const hasTwitter = !!post.tweetId;
+    const hasLinkedIn = !!post.linkedinPostId; // ✅ ADD
     const platforms = post.platform || [];
 
     if (post.type === "story") {
@@ -252,6 +276,11 @@ async function handleRepostSubmit() {
     
     if (hasTwitter || platforms.includes('twitter')) {
       badges.push(<span key="tw" className="platform-badge tw-badge">Twitter</span>);
+    }
+    
+    // ✅ ADD: LinkedIn badge
+    if (hasLinkedIn || platforms.includes('linkedin')) {
+      badges.push(<span key="li" className="platform-badge li-badge">LinkedIn</span>);
     }
 
     if (badges.length === 0) {
@@ -354,7 +383,6 @@ async function handleRepostSubmit() {
               {filteredPosts.map(post => (
                 <tr key={post._id}>
                   <td>{renderMediaPreview(post)}</td>
-                  {/* ✅ ADD: Truncate title with tooltip */}
                   <td className="title-cell" title={post.title || post.caption || "-"}>
                     {post.title || post.caption || "-"}
                   </td>
@@ -411,12 +439,10 @@ async function handleRepostSubmit() {
                         className="btn-repost"
                         disabled={post.status === "scheduled"}
                       >
-                        {/* <span className="btn-icon">🔄</span> */}
                         Repost
                       </button>
                       
                       <button onClick={() => handleDelete(post._id)} className="btn-delete">
-                        {/* <span className="btn-icon">🗑️</span> */}
                         Delete
                       </button>
                     </div>
@@ -433,13 +459,11 @@ async function handleRepostSubmit() {
         <div className="modal-overlay">
           <div className="modal-gradient-border">
             <div className="modal-content">
-              {/* Header */}
               <div className="modal-header">
                 <h2 className="modal-title">🔄 Repost Content</h2>
                 <button onClick={closeRepostModal} className="modal-close">×</button>
               </div>
 
-              {/* Preview */}
               <div className="modal-preview">
                 <div>{renderMediaPreview(selectedPost)}</div>
                 <div className="preview-info">
@@ -452,7 +476,6 @@ async function handleRepostSubmit() {
                 </div>
               </div>
 
-              {/* Caption Editor */}
               {selectedPost.type !== "story" && (
                 <div className="caption-editor">
                   <label className="editor-label">✏️ Edit Caption</label>
@@ -465,12 +488,11 @@ async function handleRepostSubmit() {
                 </div>
               )}
 
-              {/* Platform Selection */}
               {selectedPost.type !== "story" && (
                 <div className="platform-selection">
                   <label className="selection-label">📱 Select Where to Post</label>
                   
-                  {/* Facebook Checkbox */}
+                  {/* Facebook */}
                   <label className={`platform-checkbox ${postToFB ? "checked" : ""}`}>
                     <input
                       type="checkbox"
@@ -519,7 +541,7 @@ async function handleRepostSubmit() {
                     </div>
                   )}
 
-                  {/* Instagram Checkbox */}
+                  {/* Instagram */}
                   <label className={`platform-checkbox ${postToIG ? "checked" : ""} ${(() => {
                     const currentPage = pages.find(p => p.pageId === selectedPage);
                     return !selectedPage || !currentPage?.instagramBusinessId ? "disabled" : "";
@@ -534,7 +556,7 @@ async function handleRepostSubmit() {
                       onChange={e => {
                         const currentPage = pages.find(p => p.pageId === selectedPage);
                         if (!currentPage?.instagramBusinessId) {
-                          alert("❌ Selected page doesn't have Instagram connected.\n\nPlease select a page with Instagram or connect Instagram to this page first.");
+                          alert("❌ Selected page doesn't have Instagram connected.");
                           return;
                         }
                         setPostToIG(e.target.checked);
@@ -556,7 +578,7 @@ async function handleRepostSubmit() {
                     </div>
                   </label>
 
-                  {/* Instagram Story Option */}
+                  {/* Instagram Story */}
                   {(selectedPost.type === "image" || selectedPost.type === "video") && selectedPost.type !== "carousel" && (
                     <label className={`platform-checkbox story-checkbox ${postToStory ? "checked" : ""} ${(() => {
                       const currentPage = pages.find(p => p.pageId === selectedPage);
@@ -572,7 +594,7 @@ async function handleRepostSubmit() {
                         onChange={e => {
                           const currentPage = pages.find(p => p.pageId === selectedPage);
                           if (!currentPage?.instagramBusinessId) {
-                            alert("❌ Instagram Story requires Instagram connection.\n\nPlease select a page with Instagram connected.");
+                            alert("❌ Instagram Story requires Instagram connection.");
                             return;
                           }
                           setPostToStory(e.target.checked);
@@ -598,7 +620,7 @@ async function handleRepostSubmit() {
                     </label>
                   )}
 
-                  {/* ✅ Twitter Checkbox */}
+                  {/* Twitter */}
                   {twitterConnected && (
                     <label className={`platform-checkbox ${postToTwitter ? "checked" : ""}`}>
                       <input
@@ -606,7 +628,7 @@ async function handleRepostSubmit() {
                         checked={postToTwitter}
                         onChange={e => setPostToTwitter(e.target.checked)}
                       />
-                      {/* <span className="platform-icon">🐦</span> */}
+                      <span className="platform-icon">🐦</span>
                       <div className="platform-text">
                         <div className="platform-name">Twitter</div>
                         <div className="platform-hint">@{twitterUsername}</div>
@@ -614,8 +636,24 @@ async function handleRepostSubmit() {
                     </label>
                   )}
 
+                  {/* ✅ ADD: LinkedIn Checkbox */}
+                  {linkedInConnected && (
+                    <label className={`platform-checkbox ${postToLinkedIn ? "checked" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={postToLinkedIn}
+                        onChange={e => setPostToLinkedIn(e.target.checked)}
+                      />
+                      <span className="platform-icon">💼</span>
+                      <div className="platform-text">
+                        <div className="platform-name">LinkedIn</div>
+                        <div className="platform-hint">{linkedInName}</div>
+                      </div>
+                    </label>
+                  )}
+
                   {/* Warning */}
-                  {!postToFB && !postToIG && !postToStory && !postToTwitter && (
+                  {!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn && (
                     <div className="platform-warning">
                       ⚠️ Please select at least one platform
                     </div>
@@ -623,7 +661,6 @@ async function handleRepostSubmit() {
                 </div>
               )}
 
-              {/* Story Info */}
               {selectedPost.type === "story" && (
                 <div className="story-info-box">
                   <span className="story-info-icon">📖</span>
@@ -631,15 +668,14 @@ async function handleRepostSubmit() {
                 </div>
               )}
 
-              {/* Action Buttons */}
               <div className="modal-actions">
                 <button onClick={closeRepostModal} disabled={reposting} className="btn-cancel">
                   Cancel
                 </button>
                 <button
                   onClick={handleRepostSubmit}
-                  disabled={reposting || (!postToFB && !postToIG && !postToStory && !postToTwitter)}
-                  className={`btn-submit ${postToStory ? "story-submit" : ""} ${reposting || (!postToFB && !postToIG && !postToStory && !postToTwitter) ? "disabled" : ""}`}
+                  disabled={reposting || (!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn)}
+                  className={`btn-submit ${postToStory ? "story-submit" : ""} ${reposting || (!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn) ? "disabled" : ""}`}
                 >
                   {reposting ? (
                     <>

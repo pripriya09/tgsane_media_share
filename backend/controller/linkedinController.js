@@ -215,162 +215,25 @@ export const disconnectLinkedIn = async (req, res) => {
 
 // ==================== POSTING TO LINKEDIN ====================
 
-// Helper function to upload image to LinkedIn
-async function uploadImageToLinkedIn(imageUrl, accessToken, memberUrn) {
-  try {
-    // Step 1: Register the upload
-    const registerPayload = {
-      registerUploadRequest: {
-        owner: memberUrn,
-        recipes: ["urn:li:digitalmediaRecipe:feedshare-image"],
-        serviceRelationships: [
-          {
-            identifier: "urn:li:userGeneratedContent",
-            relationshipType: "OWNER"
-          }
-        ],
-        supportedUploadMechanism: ["SYNCHRONOUS_UPLOAD"]
-      }
-    };
 
-    const registerResponse = await axios.post(
-      `${LINKEDIN_API_URL}/assets?action=registerUpload`,
-      registerPayload,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-          "X-Restli-Protocol-Version": "2.0.0"
-        }
-      }
-    );
 
-    const uploadUrl = registerResponse.data.value.uploadMechanism[
-      "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
-    ].uploadUrl;
-    
-    const assetUrn = registerResponse.data.value.asset;
+// // Legacy route for direct posting (optional)
+// export const postToLinkedIn = async (req, res) => {
+//   try {
+//     const { text, imageUrl } = req.body;
+//     const userId = req.user.userId || req.user._id;
 
-    console.log("✅ LinkedIn image registered:", assetUrn);
+//     const result = await postToLinkedInHelper({ userId, text, imageUrl });
 
-    // Step 2: Download image from URL
-    const imageResponse = await axios.get(imageUrl, {
-      responseType: "arraybuffer"
-    });
-    const imageBuffer = Buffer.from(imageResponse.data);
-
-    // Step 3: Upload image binary to LinkedIn
-    await axios.put(uploadUrl, imageBuffer, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/octet-stream"
-      },
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity
-    });
-
-    console.log("✅ LinkedIn image uploaded successfully");
-
-    return assetUrn;
-  } catch (err) {
-    console.error("❌ LinkedIn image upload error:", err.response?.data || err.message);
-    throw err;
-  }
-}
-
-// Main function to post to LinkedIn
-export async function postToLinkedInHelper({ userId, text, imageUrl }) {
-  try {
-    const user = await User.findById(userId);
-
-    if (!user?.linkedin?.accessToken || !user.linkedin.userId) {
-      throw new Error("LinkedIn not connected for this user");
-    }
-
-    // Decrypt access token
-    const accessToken = decrypt(user.linkedin.accessToken);
-    const memberUrn = `urn:li:person:${user.linkedin.userId}`;
-
-    // Upload image if provided
-    let media = null;
-    if (imageUrl) {
-      try {
-        const assetUrn = await uploadImageToLinkedIn(imageUrl, accessToken, memberUrn);
-        media = [
-          {
-            status: "READY",
-            description: {
-              text: text || ""
-            },
-            media: assetUrn,
-            title: {
-              text: "Image"
-            }
-          }
-        ];
-      } catch (uploadErr) {
-        console.error("Failed to upload image, posting text only:", uploadErr.message);
-        // Continue without image if upload fails
-      }
-    }
-
-    // Build post payload
-    const payload = {
-      author: memberUrn,
-      lifecycleState: "PUBLISHED",
-      specificContent: {
-        "com.linkedin.ugc.ShareContent": {
-          shareCommentary: { text: text || "Check out my post!" },
-          shareMediaCategory: media ? "IMAGE" : "NONE",
-          ...(media && { media })
-        }
-      },
-      visibility: {
-        "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
-      }
-    };
-
-    console.log("📤 Posting to LinkedIn...");
-
-    // Post to LinkedIn
-    const postRes = await axios.post(
-      `${LINKEDIN_API_URL}/ugcPosts`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-          "X-Restli-Protocol-Version": "2.0.0"
-        }
-      }
-    );
-
-    console.log("✅ Posted to LinkedIn:", postRes.data.id);
-
-    return { id: postRes.data.id };
-  } catch (err) {
-    console.error("❌ LinkedIn post error:", err.response?.data || err.message);
-    throw err;
-  }
-}
-
-// Legacy route for direct posting (optional)
-export const postToLinkedIn = async (req, res) => {
-  try {
-    const { text, imageUrl } = req.body;
-    const userId = req.user.userId || req.user._id;
-
-    const result = await postToLinkedInHelper({ userId, text, imageUrl });
-
-    return res.json({
-      success: true,
-      linkedinPostId: result.id
-    });
-  } catch (err) {
-    console.error("LinkedIn post error:", err);
-    return res.status(500).json({
-      success: false,
-      error: err.message || "Failed to post to LinkedIn"
-    });
-  }
-};
+//     return res.json({
+//       success: true,
+//       linkedinPostId: result.id
+//     });
+//   } catch (err) {
+//     console.error("LinkedIn post error:", err);
+//     return res.status(500).json({
+//       success: false,
+//       error: err.message || "Failed to post to LinkedIn"
+//     });
+//   }
+// };

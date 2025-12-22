@@ -9,7 +9,7 @@ import path from "path";
 import axios from "axios";
 
 // ✅ Import LinkedIn helper
-import { postToLinkedInHelper } from "../controller/linkedinController.js";
+import { postToLinkedInHelper } from "./linkedinService.js";
 
 const FB_API_VERSION = "v24.0";
 

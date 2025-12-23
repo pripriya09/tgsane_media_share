@@ -1,6 +1,6 @@
 // userRoute.js
 import express from "express";
-import multer from "multer"; // ✅ ADD THIS
+
 import { 
   connectFacebook, 
   getConnectedPages, 
@@ -12,7 +12,11 @@ import {
   getScheduledPosts, 
   updateScheduledPost, 
   deleteScheduledPost,
+  uploadMediaToGallery,
+  getMediaGallery,
+  deleteMediaGallery,
 } from "../controller/userController.js";
+
 import { ensureAuth } from "../utils/auth.js";
 import Post from "../models/Post.js";
 
@@ -38,11 +42,17 @@ import {
 } from "../controller/linkedinController.js";
 
 
+// ✅ Import upload from middleware (not app.js)
+import { upload } from "../middleware/upload.js";
+
 const router = express.Router();
-const upload = multer({ 
-  dest: "uploads/",
-  limits: { fileSize: 10 * 1024 * 1024 }
-});
+
+
+// const router = express.Router();
+// const upload = multer({ 
+//   dest: "uploads/",
+//   limits: { fileSize: 10 * 1024 * 1024 }
+// });
 
 // Facebook routes
 router.post("/connect/facebook", ensureAuth(), connectFacebook);
@@ -66,6 +76,10 @@ router.get("/posts", ensureAuth(), async (req, res) => {
   }
 });
 
+// ✅ MEDIA GALLERY ROUTES
+router.get('/media-gallery', ensureAuth(), getMediaGallery);
+router.post('/media-gallery/upload', ensureAuth(), upload.single('media'), uploadMediaToGallery);
+router.delete('/media-gallery/:id', ensureAuth(), deleteMediaGallery);
 // DELETE a specific post
 router.delete("/posts/:postId", ensureAuth(), async (req, res) => {
   try {

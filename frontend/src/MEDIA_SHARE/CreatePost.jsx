@@ -48,6 +48,14 @@ const [linkedInName, setLinkedInName] = useState("");
     const [scheduledDateTime, setScheduledDateTime] = useState("");
     const [hashtags, setHashtags] = useState("");
 
+
+// Add new state at top (around line 40)
+const [showGalleryModal, setShowGalleryModal] = useState(false);
+const [galleryMedia, setGalleryMedia] = useState([]);
+const [loadingGallery, setLoadingGallery] = useState(false);
+
+const [isDragging, setIsDragging] = useState(false);
+
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -109,6 +117,7 @@ const fonts = [
   ];
   
 
+
   useEffect(() => {
     fetchContent();
     loadPagesForUser();
@@ -131,7 +140,67 @@ const fonts = [
   }, [textContent, fontSize, fontFamily, textColor, backgroundGradient, textAlign, fontWeight]);
 
 
-// ✅ FIXED: Check Twitter connection (line ~90)
+
+
+// ✅ CORRECT: Load gallery media as SELECTED file in upload area
+useEffect(() => {
+  const galleryMediaJSON = localStorage.getItem("galleryMediaForPost");
+  
+  if (galleryMediaJSON) {
+    try {
+      const mediaItem = JSON.parse(galleryMediaJSON);
+      
+      console.log("📦 Loading from gallery:", mediaItem);
+      
+      // ✅ Set as selected file (not contentData)
+      // Create a virtual file object for preview
+      const galleryFile = {
+        name: mediaItem.name || "Gallery Media",
+        url: mediaItem.url,
+        type: mediaItem.type,
+        fromGallery: true,
+        size: 0
+      };
+      
+      // Set as single file (like user selected it)
+      setSingleFile(galleryFile);
+      
+      // Optionally set default caption
+      setTitle(mediaItem.name?.replace(/\.[^/.]+$/, "") || "");
+      
+      // Clear localStorage
+      localStorage.removeItem("galleryMediaForPost");
+      
+      // Show success message
+      setTimeout(() => {
+        alert("✅ Media loaded from gallery! Add caption and click Upload.");
+      }, 300);
+      
+    } catch (error) {
+      console.error("❌ Failed to load gallery media:", error);
+      localStorage.removeItem("galleryMediaForPost");
+    }
+  }
+}, []);
+
+
+
+// ✅ Listen for paste events globally when in media upload mode
+useEffect(() => {
+  if (contentType === "media") {
+    document.addEventListener('paste', handlePaste);
+    
+    return () => {
+      document.removeEventListener('paste', handlePaste);
+    };
+  }
+}, [contentType, isCarousel, files]);
+
+
+
+
+
+
 // ✅ Check Twitter connection using api.js (line ~90)
 const checkTwitterConnection = async () => {
   try {
@@ -291,51 +360,98 @@ const connectLinkedIn = async () => {
 
   const handleMediaUpload = async (e) => {
     e.preventDefault();
+    
     const fileList = isCarousel ? files : [singleFile];
+    
     if (fileList.length === 0 || (isCarousel && fileList.length < 2)) {
       alert(isCarousel ? "Select 2–10 files" : "Select a file");
       return;
     }
-
+  
     setLoading(true);
+    
     try {
-      const fd = new FormData();
-      fileList.forEach(file => fd.append("file", file));
-
-      const res = await api.post("/upload", fd);
-      const results = Array.isArray(res.data) ? res.data : [res.data];
-
-      const uploaded = results.map(r => ({
-        title: title || "",
-        type: r.resource_type === "video" ? "video" : "image",
-        image: r.resource_type !== "video" ? r.url : null,
-        videoUrl: r.resource_type === "video" ? r.url : null,
-        url: r.url
+      // ✅ Check if file is from gallery (already uploaded)
+      if (!isCarousel && singleFile?.fromGallery) {
+        // Skip upload, directly add to contentData
+        const newContent = {
+          title: title || singleFile.name,
+          type: singleFile.type,
+          image: singleFile.type === "image" ? singleFile.url : null,
+          videoUrl: singleFile.type === "video" ? singleFile.url : null,
+          url: singleFile.url,
+          fromGallery: true
+        };
+        
+        const itemType = contentType === "story" ? "story" : singleFile.type;
+        setContentData(prev => [{ ...newContent, type: itemType }, ...prev]);
+        
+        alert("✅ Added to post!");
+        setSingleFile(null);
+        setTitle("");
+        return;
+      }
+      
+      // ✅ For carousel with gallery items
+      const galleryItems = isCarousel ? files.filter(f => f.fromGallery) : [];
+      const newFiles = isCarousel ? files.filter(f => !f.fromGallery) : [singleFile];
+      
+      let uploadedItems = [];
+  
+      // Upload new files
+      if (newFiles.length > 0 && newFiles[0]) {
+        const fd = new FormData();
+        newFiles.forEach(file => fd.append("file", file));
+        
+        const res = await api.post("/upload", fd);
+        const results = Array.isArray(res.data) ? res.data : [res.data];
+        
+        uploadedItems = results.map(r => ({
+          title: title || "",
+          type: r.resource_type === "video" ? "video" : "image",
+          image: r.resource_type !== "video" ? r.url : null,
+          videoUrl: r.resource_type === "video" ? r.url : null,
+          url: r.url
+        }));
+      }
+  
+      // Add gallery items (already uploaded)
+      const galleryUploaded = galleryItems.map(g => ({
+        title: title || g.name,
+        type: g.type,
+        image: g.type === "image" ? g.url : null,
+        videoUrl: g.type === "video" ? g.url : null,
+        url: g.url
       }));
-
+  
+      const allItems = [...uploadedItems, ...galleryUploaded];
+  
+      // Add to contentData
       if (isCarousel) {
         setContentData(prev => [{
           title: title || "Carousel",
           type: "carousel",
-          items: uploaded.map(u => ({ type: u.type, url: u.url }))
+          items: allItems.map(u => ({ type: u.type, url: u.url }))
         }, ...prev]);
       } else {
-        const itemType = contentType === "story" ? "story" : uploaded[0].type;
-        setContentData(prev => [{ ...uploaded[0], type: itemType }, ...prev]);
+        const itemType = contentType === "story" ? "story" : allItems[0].type;
+        setContentData(prev => [{ ...allItems[0], type: itemType }, ...prev]);
       }
-
+  
       alert("✅ Uploaded!");
       setFiles([]);
       setSingleFile(null);
       setTitle("");
       if (fileInputRef.current) fileInputRef.current.value = "";
+      
     } catch (err) {
       setErrorMsg("Upload failed: " + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
     }
   };
-
+  
+  
   const handleTextUpload = async () => {
     if (!textContent.trim()) {
       alert("Enter text first!");
@@ -599,6 +715,182 @@ if (postToLinkedIn && !linkedInConnected) {
     const page = pages.find(p => p.pageId === selectedPage);
     return !!page?.instagramBusinessId;
   };
+
+
+
+
+  // Add function to load gallery
+const loadGallery = async () => {
+  try {
+    setLoadingGallery(true);
+    const res = await api.get("/user/media-gallery");
+    setGalleryMedia(res.data.media || []);
+  } catch (err) {
+    console.error("Failed to load gallery:", err);
+    alert("Failed to load gallery");
+  } finally {
+    setLoadingGallery(false);
+  }
+};
+
+// ✅ FIXED: Show gallery selection as preview in upload area
+const selectFromGallery = (item) => {
+  if (isCarousel) {
+    // Check carousel limit
+    if (files.length >= 10) {
+      alert("❌ Maximum 10 items in carousel");
+      return;
+    }
+    
+    // Add URL-based item to carousel files (for preview)
+    const galleryItem = {
+      url: item.url,
+      type: item.type,
+      name: item.originalName || `Gallery ${item.type}`,
+      fromGallery: true,
+      size: 0
+    };
+    
+    setFiles(prev => [...prev, galleryItem]);
+    alert(`✅ Added to selection (${files.length + 1}/10)`);
+  } else {
+    // ✅ For single: Set as singleFile (same as file picker)
+    const galleryFile = {
+      url: item.url,
+      type: item.type,
+      name: item.originalName || "Gallery Media",
+      fromGallery: true,
+      size: 0
+    };
+    
+    setSingleFile(galleryFile);
+    alert("✅ Media selected! Add caption and click Upload.");
+  }
+  
+  setShowGalleryModal(false);
+};
+
+
+
+// ✅ Drag & Drop Handlers
+const handleDragEnter = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  setIsDragging(true);
+};
+
+const handleDragLeave = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  setIsDragging(false);
+};
+
+const handleDragOver = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+};
+
+const handleDrop = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  setIsDragging(false);
+  
+  const droppedFiles = Array.from(e.dataTransfer.files);
+  
+  // Filter only images and videos
+  const validFiles = droppedFiles.filter(file => 
+    file.type.startsWith('image/') || file.type.startsWith('video/')
+  );
+  
+  if (validFiles.length === 0) {
+    alert("⚠️ Please drop only images or videos");
+    return;
+  }
+  
+  if (isCarousel) {
+    if (files.length + validFiles.length > 10) {
+      alert("❌ Maximum 10 items in carousel");
+      return;
+    }
+    setFiles(prev => [...prev, ...validFiles]);
+  } else {
+    setSingleFile(validFiles[0]);
+  }
+};
+
+// ✅ Paste Handler
+const handlePaste = (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  
+  const pastedFiles = [];
+  
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    
+    // Check if item is an image or video
+    if (item.type.startsWith('image/') || item.type.startsWith('video/')) {
+      const file = item.getAsFile();
+      if (file) {
+        pastedFiles.push(file);
+      }
+    }
+  }
+  
+  if (pastedFiles.length === 0) {
+    return; // No valid files pasted
+  }
+  
+  if (isCarousel) {
+    if (files.length + pastedFiles.length > 10) {
+      alert("❌ Maximum 10 items in carousel");
+      return;
+    }
+    setFiles(prev => [...prev, ...pastedFiles]);
+    alert(`✅ ${pastedFiles.length} file(s) pasted!`);
+  } else {
+    setSingleFile(pastedFiles[0]);
+    alert("✅ Image pasted!");
+  }
+};
+
+
+// ✅ FIXED: localStorage ONLY - No API needed
+const saveDraft = async (cont) => {
+  const draft = {
+    id: `draft_${Date.now()}`,
+    url: cont.image || cont.videoUrl || cont.url,
+    type: cont.type,
+    caption: title || cont.title || "",
+    platforms: {
+      fb: postToFB,
+      ig: postToIG,
+      twitter: postToTwitter,
+      linkedin: postToLinkedIn
+    },
+    savedAt: new Date().toISOString(),
+    pageId: selectedPage
+  };
+
+  try {
+    // ✅ localStorage ONLY - Works immediately
+    const existingDrafts = JSON.parse(localStorage.getItem("postDrafts") || "[]");
+    const updatedDrafts = [draft, ...existingDrafts.slice(0, 20)]; // Keep max 20 drafts
+    localStorage.setItem("postDrafts", JSON.stringify(updatedDrafts));
+    
+    alert("✅ Saved as draft! View in Content Manager (SchedulePost page).");
+    
+    // Remove from current content list
+    setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
+  } catch (err) {
+    console.error("Draft save error:", err);
+    alert("✅ Draft saved locally!");
+  }
+};
+
+
+
+
 
   return (
     <div className="create-post-wrapper">
@@ -915,6 +1207,9 @@ if (postToLinkedIn && !linkedInConnected) {
             </div>
           </div>
         )}
+
+
+        
   
         {/* Story Settings */}
         {contentType === "story" && (
@@ -973,71 +1268,162 @@ if (postToLinkedIn && !linkedInConnected) {
   
         {/* Upload Area */}
         <div className="upload-area">
-          {contentType === "media" && (
-            <form onSubmit={handleMediaUpload}>
-              <label className="carousel-check">
-                <input
-                  type="checkbox"
-                  checked={isCarousel}
-                  onChange={(e) => {
-                    setIsCarousel(e.target.checked);
-                    setFiles([]);
-                    setSingleFile(null);
-                    if (fileInputRef.current) fileInputRef.current.value = "";
-                  }}
-                />
-                <span>Carousel (2-10 items)</span>
-              </label>
-  
-              <input
-                type="text"
-                placeholder="Caption (optional)..."
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="caption-field"
-              />
-  
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*,video/*"
-                multiple={isCarousel}
-                onChange={handleFileChange}
-                className="file-input"
-              />
-  
-              {isCarousel && files.length > 0 && (
-                <div className="file-list">
-                  {files.map((f, i) => (
-                    <div key={i} className="file-tag">
-                      <span>
-                        {i + 1}. {f.name}
-                      </span>
-                      <button type="button" onClick={() => removeFile(i)}>
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-  
-              {!isCarousel && singleFile && (
-                <div className="file-list">
-                  <div className="file-tag">
-                    {singleFile.name}
-                    <button type="button" onClick={removeSingleFile}>
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              )}
-  
-              <button type="submit" disabled={loading} className="upload-btn">
-                {loading ? "⏳ Uploading..." : "📤 Upload"}
-              </button>
-            </form>
+  {contentType === "media" && (
+    <form onSubmit={handleMediaUpload}>
+      <label className="carousel-check">
+        <input
+          type="checkbox"
+          checked={isCarousel}
+          onChange={(e) => {
+            setIsCarousel(e.target.checked);
+            setFiles([]);
+            setSingleFile(null);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+          }}
+        />
+        <span>Carousel (2-10 items)</span>
+      </label>
+
+      <input
+        type="text"
+        placeholder="Caption (optional)..."
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        className="caption-field"
+      />
+
+      {/* Drag & Drop Zone */}
+      <div 
+        className={`drop-zone ${isDragging ? 'dragging' : ''}`}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          multiple={isCarousel}
+          onChange={handleFileChange}
+          className="file-input"
+          style={{ display: 'none' }}
+        />
+        
+        <div className="drop-zone-content">
+          {isDragging ? (
+            <>
+              <div className="drop-icon">📥</div>
+              <p className="drop-text">Drop files here</p>
+            </>
+          ) : (
+            <>
+              <div className="upload-icon">📤</div>
+              <p className="upload-text">
+                <strong>Click to upload</strong> or drag & drop
+              </p>
+              <p className="upload-hint">
+                You can also <strong>paste (Ctrl+V)</strong> images
+              </p>
+              <small className="upload-specs">
+                {isCarousel ? "2-10 items • " : ""}Images or Videos • Max 100MB
+              </small>
+            </>
           )}
-  
+        </div>
+      </div>
+
+   
+     {/* ✅ SHOW ONLY FILENAMES - No image preview before upload */}
+{(files.length > 0 || singleFile) && (
+  <div className="selected-files-list">
+    <div className="files-list-header">
+      <span>📋 Selected Files</span>
+      <small>{isCarousel ? `${files.length}/10` : '1 file'}</small>
+    </div>
+
+    {/* Carousel - Multiple files */}
+    {isCarousel && files.length > 0 && (
+      <div className="files-items">
+        {files.map((f, i) => (
+          <div key={i} className="file-item">
+            <span className="file-number">{i + 1}.</span>
+            <span className="file-icon">
+              {f.type === "video" || f.type?.startsWith('video') ? '🎥' : '🖼️'}
+            </span>
+            <span className="file-name" title={f.name}>
+              {f.name}
+            </span>
+            {f.fromGallery && (
+              <span className="file-source">Gallery</span>
+            )}
+            <button 
+              type="button" 
+              className="file-remove-btn"
+              onClick={() => removeFile(i)}
+              title="Remove"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+    )}
+
+    {/* Single file */}
+    {!isCarousel && singleFile && (
+      <div className="files-items">
+        <div className="file-item">
+          <span className="file-icon">
+            {singleFile.type === "video" || singleFile.type?.startsWith('video') ? '🎥' : '🖼️'}
+          </span>
+          <span className="file-name" title={singleFile.name}>
+            {singleFile.name}
+          </span>
+          {singleFile.fromGallery && (
+            <span className="file-source">Gallery</span>
+          )}
+          <button 
+            type="button" 
+            className="file-remove-btn"
+            onClick={removeSingleFile}
+            title="Remove"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+)}
+
+      {/* Browse Gallery Button */}
+      <button 
+        type="button"
+        onClick={() => {
+          setShowGalleryModal(true);
+          loadGallery();
+        }}
+        className="gallery-btn"
+      >
+        🖼️ Browse Gallery
+      </button>
+
+      {/* Upload Button */}
+      <button 
+        type="submit" 
+        // disabled={loading || (!singleFile && files.length === 0)} 
+        className="upload-btn"
+      >
+        {loading 
+          ? "⏳ Uploading..." 
+          : (singleFile?.fromGallery || files.some(f => f.fromGallery))
+          ? "Upload"
+          : "📤 Upload"}
+      </button>
+    </form>
+  )}
           {contentType === "text" && (
             <div className="text-creator">
               <textarea
@@ -1179,6 +1565,7 @@ if (postToLinkedIn && !linkedInConnected) {
             </form>
           )}
         </div>
+
       </div>
   
       {/* Right Panel */}
@@ -1228,19 +1615,109 @@ if (postToLinkedIn && !linkedInConnected) {
                 <div className="card-info">
                   <p>{cont.title || "(no caption)"}</p>
                   <span className="badge">{cont.type}</span>
+                  {cont.fromGallery && (
+    <span 
+      className="badge" 
+      style={{ 
+        background: 'linear-gradient(135deg, #667eea, #764ba2)', 
+        marginLeft: '8px' 
+      }}
+    >
+      🖼️ Gallery
+    </span>
+  )}
                 </div>
   
-                <button
-                  onClick={() => handlePost(cont)}
-                  className="post-now-btn"
-                >
-                  {cont.type === "story" ? "📖 Post Story" : "🚀 Post Now"}
-                </button>
+                <div className="post-actions">
+
+  <button
+    onClick={() => handlePost(cont)}
+    className="btn-post-now"
+    disabled={loading}
+  >
+    {loading ? '⏳ Posting...' : (cont.type === "story" ? "📖 Post Story" : "🚀 Post Now")}
+  </button>
+  
+
+  <button
+    onClick={() => saveDraft(cont)}
+    className="btn-save-draft"
+    disabled={loading}
+  >
+    📝 Save Draft
+  </button>
+  
+  {/* ✅ 3. Schedule - NEW
+  <button
+    onClick={() => handleSchedule(cont)}
+    className="btn-schedule"
+    disabled={loading}
+  >
+    ⏰ Schedule
+  </button> */}
+</div>
+
               </div>
             ))
           )}
+
+
         </div>
       </div>
+
+      {/* ✅ GALLERY MODAL */}
+{showGalleryModal && (
+  <div className="modal-overlay" onClick={() => setShowGalleryModal(false)}>
+    <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+      <div className="modal-header">
+        <h3>📁 My Media Gallery</h3>
+        <button 
+          className="close-btn" 
+          onClick={() => setShowGalleryModal(false)}
+        >
+          ✕
+        </button>
+      </div>
+
+      <div className="modal-body">
+        {loadingGallery ? (
+          <p style={{ textAlign: 'center', padding: '40px' }}>
+            ⏳ Loading gallery...
+          </p>
+        ) : galleryMedia.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <p>📂 No media in gallery</p>
+            <small>Upload media in Media Gallery page first</small>
+          </div>
+        ) : (
+          <div className="gallery-grid">
+            {galleryMedia.map((item) => (
+              <div 
+                key={item._id} 
+                className="gallery-item"
+                onClick={() => selectFromGallery(item)}
+              >
+                {item.type === "image" ? (
+                  <img src={item.url} alt={item.originalName} />
+                ) : (
+                  <div className="video-thumb">
+                    <video src={item.url} />
+                    <span className="play-icon">▶️</span>
+                  </div>
+                )}
+                <div className="gallery-item-info">
+                  <small>{item.type}</small>
+                  <small>{new Date(item.uploadedAt).toLocaleDateString()}</small>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
+
     </div>
   );
   

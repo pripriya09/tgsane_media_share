@@ -1,9 +1,10 @@
 // Dashboard.jsx - UPDATED WITH SCHEDULE LINK
-import React, { useEffect} from "react";
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect,  } from "react";
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 
 function Dashboard() {
   const navigate = useNavigate();
+  const location = useLocation(); 
 
   const handleLogout = () => {
     localStorage.removeItem("ms_token");
@@ -22,58 +23,60 @@ function Dashboard() {
   }, []);
   
   return (
-    <nav style={{ 
-      width: "200px",
-      padding: "20px",
-      backgroundColor: "#f5f5f5",
-      borderRight: "2px solid #ddd",
-      minHeight: "100vh",
-      display: "flex",
-      flexDirection: "column",
-      justifyContent: "space-between"
-    }}>
+    <nav
+      style={{
+        width: "200px",
+        padding: "20px",
+        backgroundColor: "#f5f5f5",
+        borderRight: "2px solid #ddd",
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+      }}
+    >
       <div>
         <h3 style={{ marginBottom: "20px", color: "#333" }}>Menu</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          <Link 
-            to="/home/connect" 
-            style={{ 
+          <Link
+            to="/home/connect"
+            style={{
               padding: "10px 15px",
               textDecoration: "none",
               color: "#1976d2",
               backgroundColor: "#fff",
               borderRadius: "6px",
               border: "1px solid #ddd",
-              transition: "all 0.2s"
+              transition: "all 0.2s",
             }}
-            onMouseOver={e => {
+            onMouseOver={(e) => {
               e.target.style.backgroundColor = "#1976d2";
               e.target.style.color = "#fff";
             }}
-            onMouseOut={e => {
+            onMouseOut={(e) => {
               e.target.style.backgroundColor = "#fff";
               e.target.style.color = "#1976d2";
             }}
           >
             🔗 Connect FB
           </Link>
-          
-          <Link 
-            to="/home/create" 
-            style={{ 
+
+          <Link
+            to="/home/create"
+            style={{
               padding: "10px 15px",
               textDecoration: "none",
               color: "#1976d2",
               backgroundColor: "#fff",
               borderRadius: "6px",
               border: "1px solid #ddd",
-              transition: "all 0.2s"
+              transition: "all 0.2s",
             }}
-            onMouseOver={e => {
+            onMouseOver={(e) => {
               e.target.style.backgroundColor = "#1976d2";
               e.target.style.color = "#fff";
             }}
-            onMouseOut={e => {
+            onMouseOut={(e) => {
               e.target.style.backgroundColor = "#fff";
               e.target.style.color = "#1976d2";
             }}
@@ -82,45 +85,45 @@ function Dashboard() {
           </Link>
 
           {/* ✅ NEW: Schedule Post Link */}
-          <Link 
-            to="/home/schedule" 
-            style={{ 
+          <Link
+            to="/home/schedule"
+            style={{
               padding: "10px 15px",
               textDecoration: "none",
               color: "#1976d2",
               backgroundColor: "#fff",
               borderRadius: "6px",
               border: "1px solid #ddd",
-              transition: "all 0.2s"
+              transition: "all 0.2s",
             }}
-            onMouseOver={e => {
+            onMouseOver={(e) => {
               e.target.style.backgroundColor = "#1976d2";
               e.target.style.color = "#fff";
             }}
-            onMouseOut={e => {
+            onMouseOut={(e) => {
               e.target.style.backgroundColor = "#fff";
               e.target.style.color = "#1976d2";
             }}
           >
             📅 Schedule Posts
           </Link>
-          
-          <Link 
-            to="/home/history" 
-            style={{ 
+
+          <Link
+            to="/home/history"
+            style={{
               padding: "10px 15px",
               textDecoration: "none",
               color: "#1976d2",
               backgroundColor: "#fff",
               borderRadius: "6px",
               border: "1px solid #ddd",
-              transition: "all 0.2s"
+              transition: "all 0.2s",
             }}
-            onMouseOver={e => {
+            onMouseOver={(e) => {
               e.target.style.backgroundColor = "#1976d2";
               e.target.style.color = "#fff";
             }}
-            onMouseOut={e => {
+            onMouseOut={(e) => {
               e.target.style.backgroundColor = "#fff";
               e.target.style.color = "#1976d2";
             }}
@@ -128,7 +131,28 @@ function Dashboard() {
             📊 Posts History
           </Link>
 
-          
+          <Link // ← Change button to Link
+            to="/home/media-gallery"
+            style={{
+              padding: "10px 15px",
+              textDecoration: "none",
+              color: "#1976d2",
+              backgroundColor: "#fff",
+              borderRadius: "6px",
+              border: "1px solid #ddd",
+              transition: "all 0.2s",
+            }}
+            onMouseOver={(e) => {
+              e.target.style.backgroundColor = "#1976d2";
+              e.target.style.color = "#fff";
+            }}
+            onMouseOut={(e) => {
+              e.target.style.backgroundColor = "#fff";
+              e.target.style.color = "#1976d2";
+            }}
+          >
+            🖼️ Media Gallery
+          </Link>
         </div>
       </div>
 
@@ -144,10 +168,10 @@ function Dashboard() {
           cursor: "pointer",
           fontSize: "14px",
           fontWeight: "600",
-          transition: "all 0.2s"
+          transition: "all 0.2s",
         }}
-        onMouseOver={e => e.target.style.backgroundColor = "#d32f2f"}
-        onMouseOut={e => e.target.style.backgroundColor = "#f44336"}
+        onMouseOver={(e) => (e.target.style.backgroundColor = "#d32f2f")}
+        onMouseOut={(e) => (e.target.style.backgroundColor = "#f44336")}
       >
         🚪 Logout
       </button>

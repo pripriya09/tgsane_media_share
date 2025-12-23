@@ -3,6 +3,10 @@ import User from "../models/User.js";
 import fetch from "node-fetch";
 import { v2 as cloudinary } from "cloudinary";
 import streamifier from "streamifier";
+import MediaGallery from "../models/MediaGallery.js";
+
+import Post from "../models/Post.js";
+
 import axios from "axios"
 // import Post from "../models/Post.js"
 import { extractHashtags, extractMentions, formatPostContent } from "../utils/postHelpers.js";
@@ -10,6 +14,28 @@ import { schedule } from "node-cron";
 import {postToLinkedInHelper} from "../utils/linkedinService.js"
 
 const FB_API_VERSION = "v24.0";
+
+
+
+async function saveToGallery(userId, url, type, originalName = "Posted Media") {
+  try {
+    const mediaItem = await MediaGallery.create({
+      userId,
+      type,
+      url,
+      originalName,
+      cloudinaryId: url.split('/').pop().split('.')[0], // Extract ID from URL
+    });
+    console.log("✅ Auto-saved to gallery:", mediaItem._id);
+    return mediaItem;
+  } catch (err) {
+    console.error("⚠️ Failed to auto-save to gallery:", err.message);
+    // Don't throw - posting is more important than gallery save
+    return null;
+  }
+}
+
+
 
 export async function connectFacebook(req, res) {
   try {
@@ -725,6 +751,31 @@ if (postToLinkedIn && user.linkedin?.connected) {
     const savedPost = await Post.create(postData);
     console.log("✅ POST SAVED TO DB:", savedPost._id, "Platforms:", platforms);
 
+    let savedToGallery = false;
+    
+    // Save single image/video
+    if (type === "image" && image) {
+      await saveToGallery(userId, image, "image", title || "Posted Image");
+      savedToGallery = true;
+    } else if (type === "video" && videoUrl) {
+      await saveToGallery(userId, videoUrl, "video", title || "Posted Video");
+      savedToGallery = true;
+    } else if (type === "carousel" && Array.isArray(items)) {
+      // Save each carousel item
+      for (const item of items) {
+        await saveToGallery(
+          userId,
+          item.url,
+          item.type,
+          `${title || "Carousel Item"} - ${item.type}`
+        );
+      }
+      savedToGallery = true;
+    }
+
+    console.log(savedToGallery ? "✅ Media saved to gallery" : "ℹ️ No media to save");
+
+
     return res.json({
       success: true,
       results,
@@ -1180,5 +1231,102 @@ export const getUserProfile = async (req, res) => {
       success: false, 
       error: error.message 
     });
+  }
+};
+
+
+
+//----------------------------gallary uploded
+
+
+export const getMediaGallery = async (req, res) => {
+  try {
+    const userId = req.user.userId || req.user._id;
+    console.log("📋 Getting gallery for user:", userId);
+    
+    const media = await MediaGallery.find({ userId })
+      .sort({ createdAt: -1 })
+      .lean();
+    
+    console.log(`✅ Found ${media.length} media items`);
+    return res.json({ media });
+    
+  } catch (err) {
+    console.error("❌ getMediaGallery error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+export const uploadMediaToGallery = async (req, res) => {
+  try {
+    const userId = req.user.userId || req.user._id;
+    
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    console.log("📤 Gallery upload:", req.file.originalname);
+    console.log("👤 User ID:", userId);
+    
+    const type = req.file.mimetype.startsWith("video/") ? "video" : "image";
+
+    const result = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        { 
+          resource_type: type, 
+          folder: "media-gallery",
+          public_id: `gallery-${userId}-${Date.now()}`
+        },
+        (err, r) => {
+          if (err) {
+            console.error("❌ Cloudinary error:", err);
+            reject(err);
+          } else {
+            console.log("✅ Cloudinary uploaded:", r.secure_url);
+            resolve(r);
+          }
+        }
+      );
+      streamifier.createReadStream(req.file.buffer).pipe(uploadStream);
+    });
+
+    const mediaItem = await MediaGallery.create({
+      userId,
+      type,
+      url: result.secure_url,
+      originalName: req.file.originalname,
+      cloudinaryId: result.public_id,
+    });
+
+    console.log("✅ Saved to DB:", mediaItem._id);
+    return res.json({ success: true, media: mediaItem });
+
+  } catch (err) {
+    console.error("❌ Gallery upload error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+export const deleteMediaGallery = async (req, res) => {
+  try {
+    const userId = req.user.userId || req.user._id;
+    const { id } = req.params;
+    
+    const media = await MediaGallery.findOneAndDelete({
+      _id: id,
+      userId
+    });
+    
+    if (!media) {
+      return res.status(404).json({ error: "Media not found" });
+    }
+
+    await cloudinary.uploader.destroy(media.cloudinaryId);
+    console.log("✅ Media deleted");
+    
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Delete error:", err);
+    return res.status(500).json({ error: err.message });
   }
 };

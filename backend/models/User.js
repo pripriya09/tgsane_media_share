@@ -41,6 +41,7 @@ const UserSchema = new mongoose.Schema({
     pageName: String,
     pageAccessToken: String,
     instagramBusinessId: String,
+    instagramUsername: String, // ✅ ADD THIS
   }],
 });
 

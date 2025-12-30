@@ -1,4 +1,4 @@
-// LogMedia.jsx - Complete with Popup Windows for Twitter & LinkedIn
+// LogMedia.jsx - With Instagram Username Display
 import React, { useEffect, useState } from "react";
 import api from "./api";
 
@@ -21,7 +21,6 @@ function LogMedia() {
   const [linkedInLoading, setLinkedInLoading] = useState(false);
 
   useEffect(() => {
-    // Check tutorial
     const seen = localStorage.getItem("ms_tutorial_seen");
     if (seen === "true") {
       setHasSeenTutorial(true);
@@ -29,13 +28,11 @@ function LogMedia() {
       setShowTutorial(true);
     }
 
-    // Load user profile
     loadUserProfile();
     loadConnectedPages();
     checkTwitterConnection();
     checkLinkedInConnection();
 
-    // ✅ Listen for popup window messages
     window.addEventListener('message', handleOAuthMessage);
 
     // Load Facebook SDK
@@ -62,12 +59,8 @@ function LogMedia() {
     };
   }, []);
 
-  // ✅ Handle messages from popup windows
   const handleOAuthMessage = (event) => {
-    // Security: validate origin
     if (event.origin !== window.location.origin) return;
-     // ✅ For development, accept from any origin
-    // ⚠️ In production, validate: if (event.origin !== window.location.origin) return;
     console.log('Received message:', event.data);
 
     if (event.data.type === 'TWITTER_CONNECTED') {
@@ -141,14 +134,12 @@ function LogMedia() {
     }
   };
 
-  // ✅ Connect Twitter with popup
   const handleTwitterConnect = async () => {
     setTwitterLoading(true);
     try {
       const response = await api.post('/user/twitter/auth/request');
 
       if (response.data.success) {
-        // Open popup window
         const width = 600;
         const height = 700;
         const left = (window.screen.width - width) / 2;
@@ -170,16 +161,13 @@ function LogMedia() {
     }
   };
 
-  // ✅ Connect LinkedIn with popup
   const handleLinkedInConnect = async () => {
     setLinkedInLoading(true);
     try {
       const response = await api.get('/user/linkedin/auth');
   
       if (response.data.authUrl) {
-        // ✅ Instead of popup, redirect current window
         window.location.href = response.data.authUrl;
-        // User will be redirected back after OAuth
       } else {
         alert('Failed to get LinkedIn authorization URL');
         setLinkedInLoading(false);
@@ -190,7 +178,6 @@ function LogMedia() {
       setLinkedInLoading(false);
     }
   };
-  
 
   const handleTwitterDisconnect = async () => {
     if (!confirm('Are you sure you want to disconnect Twitter?')) return;
@@ -296,14 +283,14 @@ function LogMedia() {
         }
       },
       {
-        scope: "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish",
+        scope: "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,email,pages_read_user_content,business_management",
       }
     );
   };
 
   return (
     <div style={{ padding: 16 }}>
-      {/* TUTORIAL MODAL - keep your existing code */}
+      {/* TUTORIAL MODAL */}
       {showTutorial && (
         <div style={{
           position: "fixed",
@@ -373,7 +360,7 @@ function LogMedia() {
         </div>
       )}
 
-      {/* USER PROFILE SECTION - keep your existing code */}
+      {/* USER PROFILE SECTION */}
       {userProfile ? (
         <div style={{ marginBottom: 30, padding: 20, background: "#f0f2f5", borderRadius: 8 }}>
           <div>
@@ -389,17 +376,23 @@ function LogMedia() {
             </p>
           </div>
 
+          {/* ✅ UPDATED: Show Instagram Username and ID */}
           {userProfile.facebookConnected && connectedPages.length > 0 && (
             <div style={{ marginTop: 15, paddingTop: 15, borderTop: "1px solid #ddd" }}>
               <strong>📄 Connected Pages:</strong>
               {connectedPages.map((page, idx) => (
                 <div key={idx} style={{ marginTop: 8, padding: 10, background: "white", borderRadius: 6 }}>
-                  <div>{page.pageName}</div>
+                  <div style={{ fontWeight: 600, marginBottom: 5 }}>{page.pageName}</div>
                   {page.instagramBusinessId && (
-                    <div style={{ fontSize: 12, color: "#666" }}>
-                      📷 Instagram: Connected
-                    </div>
-                  )}
+  <div style={{ fontSize: 12, color: "#666", background: "#e7f3ff", padding: 8, borderRadius: 4, marginTop: 5 }}>
+    📷 Instagram: <strong style={{ color: "#E4405F" }}>
+      {page.instagramUsername ? `@${page.instagramUsername}` : 'Connected'}
+    </strong>
+    <br />
+    <span style={{ fontSize: 11, color: "#999" }}>ID: {page.instagramBusinessId}</span>
+  </div>
+)}
+
                 </div>
               ))}
             </div>
@@ -483,7 +476,7 @@ function LogMedia() {
         </button>
       </div>
 
-      {/* Info boxes - keep your existing code */}
+      {/* Twitter Info Box */}
       {twitterConnected && (
         <div style={{
           marginTop: 20,
@@ -505,6 +498,7 @@ function LogMedia() {
         </div>
       )}
 
+      {/* LinkedIn Info Box */}
       {linkedInConnected && (
         <div style={{
           marginTop: 20,

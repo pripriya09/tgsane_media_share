@@ -59,6 +59,8 @@ const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
 
+  const [editMode, setEditMode] = useState(false);
+const [editingPostId, setEditingPostId] = useState(null);
 // CreatePost.jsx - Updated fonts array with Google Fonts
 
 const fonts = [
@@ -197,6 +199,86 @@ useEffect(() => {
 }, [contentType, isCarousel, files]);
 
 
+// ✅ NEW: Load scheduled post for editing
+useEffect(() => {
+  const editData = localStorage.getItem("editScheduledPost");
+  
+  if (editData) {
+    try {
+      const post = JSON.parse(editData);
+      
+      console.log("✅ Loading post for editing:", post);
+      
+      // Set edit mode
+      setEditMode(true);
+      setEditingPostId(post.id);
+      
+      // Populate caption/title
+      setTitle(post.caption || post.title || "");
+      
+      // Set media
+      if (post.type === "carousel" && post.items) {
+        setIsCarousel(true);
+        setContentType("media");
+        
+        // Convert items to contentData format
+        setContentData([{
+          title: post.title || "Carousel",
+          type: "carousel",
+          items: post.items,
+          fromEdit: true
+        }]);
+      } else if (post.image || post.videoUrl) {
+        setContentType("media");
+        
+        // Add to contentData
+        setContentData([{
+          title: post.title || "",
+          type: post.type,
+          image: post.image || null,
+          videoUrl: post.videoUrl || null,
+          url: post.image || post.videoUrl,
+          fromEdit: true
+        }]);
+      }
+      
+      // Set platforms
+      if (post.platforms) {
+        setPostToFB(post.platforms.fb || false);
+        setPostToIG(post.platforms.ig || false);
+        setPostToTwitter(post.platforms.twitter || false);
+        setPostToLinkedIn(post.platforms.linkedin || false);
+      } else if (post.platform) {
+        // Alternative format: array of platform names
+        setPostToFB(post.platform.includes("facebook"));
+        setPostToIG(post.platform.includes("instagram"));
+        setPostToTwitter(post.platform.includes("twitter"));
+        setPostToLinkedIn(post.platform.includes("linkedin"));
+      }
+      
+      // Set selected page
+      if (post.selectedPages && post.selectedPages.length > 0) {
+        setSelectedPage(post.selectedPages[0]);
+      } else if (post.pageId) {
+        setSelectedPage(post.pageId);
+      }
+      
+      // Set scheduled date
+      if (post.scheduledFor) {
+        setIsScheduling(true);
+        const date = new Date(post.scheduledFor);
+        const formattedDate = date.toISOString().slice(0, 16);
+        setScheduledDateTime(formattedDate);
+      }
+      
+      alert("✏️ Editing mode activated! Modify as needed and click 'Post Now' to update.");
+      
+    } catch (error) {
+      console.error("Failed to parse edit data:", error);
+      alert("❌ Failed to load post for editing");
+    }
+  }
+}, []); // Run only once on mount
 
 
 
@@ -538,65 +620,84 @@ if (!postToFB && !postToIG && !postToTwitter && !postToLinkedIn) {
 
   
       // ✅ SCHEDULE POST
-      if (isScheduling) {
-        if (!scheduledDateTime) {
-          alert("❌ Please select a date and time for scheduling");
-          return;
-        }
-  
-        const scheduleDate = new Date(scheduledDateTime);
-        if (scheduleDate <= new Date()) {
-          alert("❌ Scheduled time must be in the future");
-          return;
-        }
-  
-        const platforms = [];
-        if (postToTwitter) platforms.push("twitter");
-        if (postToFB) platforms.push("facebook");
-        if (postToIG) platforms.push("instagram");
-        if (postToLinkedIn) platforms.push("linkedin");
+// ✅ SCHEDULE POST (with edit support)
+if (isScheduling) {
+  if (!scheduledDateTime) {
+    alert("❌ Please select a date and time for scheduling");
+    return;
+  }
 
-        
-        const hashtagArray = hashtags
-          .split(/[,\s]+/)
-          .filter(tag => tag.trim())
-          .map(tag => tag.replace("#", ""));
-  
-        setLoading(true);
-  
-        try {
-          const payload = {
-            title: cont.title || "",
-            caption: cont.title || "",
-            platform: platforms,
-            scheduledFor: scheduleDate.toISOString(),
-            hashtags: hashtagArray,
-            type: cont.type,
-            image: cont.image || null,
-            videoUrl: cont.videoUrl || null,
-            pageId: (postToFB || postToIG) ? selectedPage : null
-          };
-  
-          if (cont.type === "carousel") {
-            payload.items = cont.items;
-          }
-  
-          const response = await api.post("/user/schedule-post", payload);
-  
-          if (response.data.success) {
-            alert(`✅ Post scheduled for ${scheduleDate.toLocaleString()}!\n\nView in Scheduled Posts page.`);
-            setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
-            setIsScheduling(false);
-            setScheduledDateTime("");
-            setHashtags("");
-          }
-        } catch (error) {
-          alert("❌ Failed to schedule: " + (error.response?.data?.error || error.message));
-        } finally {
-          setLoading(false);
-        }
-        return;
+  const scheduleDate = new Date(scheduledDateTime);
+  if (scheduleDate <= new Date()) {
+    alert("❌ Scheduled time must be in the future");
+    return;
+  }
+
+  const platforms = [];
+  if (postToTwitter) platforms.push("twitter");
+  if (postToFB) platforms.push("facebook");
+  if (postToIG) platforms.push("instagram");
+  if (postToLinkedIn) platforms.push("linkedin");
+
+  const hashtagArray = hashtags
+    .split(/[,\s]+/)
+    .filter(tag => tag.trim())
+    .map(tag => tag.replace("#", ""));
+
+  setLoading(true);
+
+  try {
+    const payload = {
+      title: cont.title || title || "",
+      caption: cont.title || title || "",
+      platform: platforms,
+      scheduledFor: scheduleDate.toISOString(),
+      hashtags: hashtagArray,
+      type: cont.type,
+      image: cont.image || null,
+      videoUrl: cont.videoUrl || null,
+      pageId: (postToFB || postToIG) ? selectedPage : null
+    };
+
+    if (cont.type === "carousel") {
+      payload.items = cont.items;
+    }
+
+    let response;
+    
+    // ✅ Check if we're in edit mode
+    if (editMode && editingPostId) {
+      // UPDATE existing post
+      response = await api.put(`/user/schedule-post/${editingPostId}`, payload);
+      alert(`✅ Post updated and scheduled for ${scheduleDate.toLocaleString()}!`);
+    } else {
+      // CREATE new post
+      response = await api.post("/user/schedule-post", payload);
+      alert(`✅ Post scheduled for ${scheduleDate.toLocaleString()}!`);
+    }
+
+    if (response.data.success) {
+      // Clear data
+      setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
+      setIsScheduling(false);
+      setScheduledDateTime("");
+      setHashtags("");
+      
+      // Clear edit mode
+      if (editMode) {
+        localStorage.removeItem("editScheduledPost");
+        setEditMode(false);
+        setEditingPostId(null);
       }
+    }
+  } catch (error) {
+    alert("❌ Failed: " + (error.response?.data?.error || error.message));
+  } finally {
+    setLoading(false);
+  }
+  return;
+}
+
   
       // ✅ IMMEDIATE POST
       
@@ -895,6 +996,57 @@ const saveDraft = async (cont) => {
   return (
     <div className="create-post-wrapper">
       {/* Left Panel */}
+
+      {editMode && (
+      <div style={{
+        background: "linear-gradient(135deg, #fff3cd, #ffc107)",
+        border: "2px solid #ffc107",
+        padding: "15px 20px",
+        borderRadius: "12px",
+        marginBottom: "20px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.1)"
+      }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "5px" }}>
+            <span style={{ fontSize: "24px" }}>✏️</span>
+            <strong style={{ fontSize: "18px", color: "#856404" }}>
+              Editing Mode
+            </strong>
+          </div>
+          <p style={{ margin: 0, fontSize: "14px", color: "#856404" }}>
+            You're editing a scheduled post. Modify content and click "Post Now" to update.
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            if (window.confirm("Cancel editing? Changes will be lost.")) {
+              localStorage.removeItem("editScheduledPost");
+              setEditMode(false);
+              setEditingPostId(null);
+              setContentData([]);
+              setTitle("");
+              window.location.reload(); // Or navigate back
+            }
+          }}
+          style={{
+            background: "#6c757d",
+            color: "white",
+            border: "none",
+            padding: "10px 20px",
+            borderRadius: "8px",
+            cursor: "pointer",
+            fontWeight: "600",
+            fontSize: "14px"
+          }}
+        >
+          ✕ Cancel Edit
+        </button>
+      </div>
+    )}
+
       <div className="left-panel">
         <div className="panel-header">
           <h2>✨ Create Content</h2>
@@ -1630,13 +1782,21 @@ const saveDraft = async (cont) => {
   
                 <div className="post-actions">
 
-  <button
-    onClick={() => handlePost(cont)}
-    className="btn-post-now"
-    disabled={loading}
-  >
-    {loading ? '⏳ Posting...' : (cont.type === "story" ? "📖 Post Story" : "🚀 Post Now")}
-  </button>
+                <button
+  onClick={() => handlePost(cont)}
+  className="btn-post-now"
+  disabled={loading}
+>
+  {loading 
+    ? '⏳ Processing...' 
+    : editMode 
+    ? '💾 Update Post' 
+    : cont.type === "story" 
+    ? "📖 Post Story" 
+    : "🚀 Post Now"
+  }
+</button>
+
   
 
   <button

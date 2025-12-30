@@ -6,7 +6,7 @@ import streamifier from "streamifier";
 import MediaGallery from "../models/MediaGallery.js";
 
 import Post from "../models/Post.js";
-
+import ScheduledPost from "../models/ScheduledPost.js";
 import axios from "axios"
 // import Post from "../models/Post.js"
 import { extractHashtags, extractMentions, formatPostContent } from "../utils/postHelpers.js";
@@ -36,7 +36,6 @@ async function saveToGallery(userId, url, type, originalName = "Posted Media") {
 }
 
 
-
 export async function connectFacebook(req, res) {
   try {
     const { userAccessToken, userId } = req.body;
@@ -51,8 +50,30 @@ export async function connectFacebook(req, res) {
     const enrichedPages = [];
     for (const p of pagesJson.data || []) {
       let instagramBusinessId = null;
+      let instagramUsername = null;
+
       if (p.instagram_business_account?.id) {
         instagramBusinessId = p.instagram_business_account.id;
+        
+        // ✅ Try to fetch Instagram username
+        try {
+          const igUrl = `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}?fields=username&access_token=${p.access_token}`;
+          const igResp = await fetch(igUrl);
+          const igJson = await igResp.json();
+          
+          console.log(`📊 Instagram API response for ${instagramBusinessId}:`, igJson); // ✅ DEBUG
+          
+          if (igJson.username) {
+            instagramUsername = igJson.username;
+            console.log(`✅ Fetched Instagram username: @${instagramUsername} for page ${p.name}`);
+          } else if (igJson.error) {
+            console.error(`❌ Instagram API error:`, igJson.error);
+          } else {
+            console.warn(`⚠️ No username in response:`, igJson);
+          }
+        } catch (igErr) {
+          console.error(`❌ Failed to fetch Instagram username for ${instagramBusinessId}:`, igErr);
+        }
       }
 
       enrichedPages.push({
@@ -60,16 +81,17 @@ export async function connectFacebook(req, res) {
         pageName: p.name || "Unnamed Page",
         pageAccessToken: p.access_token,
         instagramBusinessId,
+        instagramUsername: instagramUsername || null, // ✅ Ensure it's null if not found
       });
     }
 
-    // SAVE TO USER IN DB — NOW WITH facebookConnected FLAG
+    // SAVE TO USER IN DB
     const user = await User.findByIdAndUpdate(
       userId,
       { 
         $set: { 
           pages: enrichedPages,
-          facebookConnected: true  // ← NEW: Mark as Facebook connected
+          facebookConnected: true
         } 
       },
       { new: true }
@@ -78,12 +100,13 @@ export async function connectFacebook(req, res) {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     console.log(`✅ Saved ${enrichedPages.length} pages for user ${userId}`);
-    console.log(`✅ Set facebookConnected = true for user ${userId}`);
+    console.log(`📊 Full page data:`, JSON.stringify(enrichedPages, null, 2)); // ✅ DEBUG
 
     const safePages = enrichedPages.map(p => ({
       pageId: p.pageId,
       pageName: p.pageName,
       instagramBusinessId: p.instagramBusinessId,
+      instagramUsername: p.instagramUsername,
     }));
 
     return res.json({ success: true, pages: safePages, facebookConnected: true });
@@ -987,61 +1010,65 @@ const savedPost = await Post.create({
 
 
 
-// ✅ NEW: Create scheduled post
 export async function createScheduledPost(req, res) {
   try {
     const userId = req.user?.userId;
     const { 
       title, 
       caption, 
+      type, 
+      image, 
+      videoUrl, 
+      items,
       platform, 
       scheduledFor, 
       hashtags,
-      type,
-      image,
-      videoUrl,
-      pageId
+      pageId,
+      selectedPages
     } = req.body;
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    // Validate scheduled time is in future
-    const scheduleDate = new Date(scheduledFor);
-    if (scheduleDate <= new Date()) {
-      return res.status(400).json({
-        error: "Scheduled time must be in the future"
+    if (!caption || !type || !platform || !scheduledFor) {
+      return res.status(400).json({ 
+        error: "Missing required fields: caption, type, platform, scheduledFor" 
       });
     }
 
-    // Extract hashtags from caption if not provided
-    const extractedHashtags = hashtags || extractHashtags(caption);
-    
-    // Extract mentions
-    const extractedMentions = extractMentions(caption, platform);
+    // Validate scheduledFor is in the future
+    const scheduleDate = new Date(scheduledFor);
+    if (scheduleDate <= new Date()) {
+      return res.status(400).json({ 
+        error: "Scheduled time must be in the future" 
+      });
+    }
 
-    const Post = (await import("../models/Post.js")).default;
-    
-    const post = await Post.create({
+    const newPost = new ScheduledPost({
       userId,
-      pageId: pageId || null,
-      title,
+      title: title || "",
       caption,
+      type,
+      image: image || null,
+      videoUrl: videoUrl || null,
+      items: items || [],
       platform: Array.isArray(platform) ? platform : [platform],
-      type: type || "image",
-      hashtags: extractedHashtags,
-      mentions: extractedMentions,
-      status: "scheduled",
+      selectedPages: selectedPages || [],
+      pageId: pageId || null,
       scheduledFor: scheduleDate,
-      image,
-      videoUrl
+      hashtags: hashtags || [],
+      status: "scheduled",
     });
+
+    await newPost.save();
+
+    console.log(`✅ Scheduled post created for user ${userId} at ${scheduleDate}`);
 
     return res.json({
       success: true,
       message: "Post scheduled successfully",
-      post
+      post: newPost,
     });
 
   } catch (err) {
@@ -1050,34 +1077,22 @@ export async function createScheduledPost(req, res) {
   }
 }
 
-// ✅ NEW: Get scheduled posts
+// ✅ Update getScheduledPosts function
 export async function getScheduledPosts(req, res) {
   try {
     const userId = req.user?.userId;
-    const { status } = req.query;
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const Post = (await import("../models/Post.js")).default;
-    
-    const query = { userId };
-    if (status) {
-      query.status = status;
-    } else {
-      // Default: show scheduled and draft posts
-      query.status = { $in: ["scheduled", "draft"] };
-    }
-
-    const posts = await Post.find(query)
-      .sort({ scheduledFor: 1 })
-      .lean();
+    const posts = await ScheduledPost.find({ userId })
+      .sort({ scheduledFor: -1 })
+      .limit(100);
 
     return res.json({
       success: true,
-      count: posts.length,
-      posts
+      posts,
     });
 
   } catch (err) {
@@ -1086,43 +1101,48 @@ export async function getScheduledPosts(req, res) {
   }
 }
 
-// ✅ NEW: Update scheduled post
+// ✅ Update updateScheduledPost function (already provided above)
 export async function updateScheduledPost(req, res) {
   try {
     const userId = req.user?.userId;
     const { postId } = req.params;
-    const updates = req.body;
+    const { caption, title, type, image, videoUrl, scheduledFor, platform, selectedPages, hashtags } = req.body;
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const Post = (await import("../models/Post.js")).default;
-    const post = await Post.findOne({ _id: postId, userId });
+    const post = await ScheduledPost.findOne({ _id: postId, userId });
 
     if (!post) {
-      return res.status(404).json({ error: "Post not found" });
+      return res.status(404).json({ error: "Scheduled post not found" });
     }
 
-    if (post.status === "posted") {
+    if (post.status !== "scheduled") {
       return res.status(400).json({
-        error: "Cannot update already posted content"
+        error: "Can only edit posts that are still scheduled"
       });
     }
 
     // Update fields
-    Object.keys(updates).forEach(key => {
-      if (key !== "_id" && key !== "userId") {
-        post[key] = updates[key];
-      }
-    });
+    if (caption !== undefined) post.caption = caption;
+    if (title !== undefined) post.title = title;
+    if (type !== undefined) post.type = type;
+    if (image !== undefined) post.image = image;
+    if (videoUrl !== undefined) post.videoUrl = videoUrl;
+    if (scheduledFor !== undefined) post.scheduledFor = new Date(scheduledFor);
+    if (platform !== undefined) post.platform = platform;
+    if (selectedPages !== undefined) post.selectedPages = selectedPages;
+    if (hashtags !== undefined) post.hashtags = hashtags;
 
     post.updatedAt = new Date();
     await post.save();
 
+    console.log(`✅ Scheduled post ${postId} updated by user ${userId}`);
+
     return res.json({
       success: true,
-      message: "Post updated successfully",
+      message: "Scheduled post updated successfully",
       post
     });
 
@@ -1132,7 +1152,7 @@ export async function updateScheduledPost(req, res) {
   }
 }
 
-// ✅ NEW: Delete scheduled post
+// ✅ Update deleteScheduledPost function
 export async function deleteScheduledPost(req, res) {
   try {
     const userId = req.user?.userId;
@@ -1142,23 +1162,19 @@ export async function deleteScheduledPost(req, res) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const Post = (await import("../models/Post.js")).default;
-    const post = await Post.findOne({ _id: postId, userId });
+    const post = await ScheduledPost.findOne({ _id: postId, userId });
 
     if (!post) {
-      return res.status(404).json({ error: "Post not found" });
+      return res.status(404).json({ error: "Scheduled post not found" });
     }
 
-    if (post.status === "posted") {
-      post.status = "deleted";
-      await post.save();
-    } else {
-      await post.deleteOne();
-    }
+    await ScheduledPost.findByIdAndDelete(postId);
+
+    console.log(`✅ Scheduled post ${postId} deleted by user ${userId}`);
 
     return res.json({
       success: true,
-      message: "Post deleted successfully"
+      message: "Scheduled post deleted",
     });
 
   } catch (err) {
@@ -1166,7 +1182,6 @@ export async function deleteScheduledPost(req, res) {
     return res.status(500).json({ error: err.message });
   }
 }
-
 
 
 

@@ -1,6 +1,7 @@
 // frontend/src/MEDIA_SHARE/TwitterConnect.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import api from './api';
 import '../CSS/socialconnect.css'; // Use your existing CSS
 
 const TwitterConnect = () => {
@@ -16,13 +17,10 @@ const TwitterConnect = () => {
 
   const checkTwitterStatus = async () => {
     try {
-      const response = await fetch('http://localhost:8006/api/user/twitter/status', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      const data = await response.json();
+      // ✅ Changed from fetch(http://localhost...) to api.get()
+      const response = await api.get('/user/twitter/status');
+      
+      const data = response.data; // axios response body is in .data
 
       if (data.success && data.connected) {
         setConnected(true);
@@ -37,14 +35,10 @@ const TwitterConnect = () => {
     setLoading(true);
     try {
       // Step 1: Get OAuth request token
-      const response = await fetch('http://localhost:8006/api/user/twitter/auth/request', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      const data = await response.json();
+      // ✅ Changed from fetch(http://localhost...) to api.post()
+      const response = await api.post('/user/twitter/auth/request');
+      
+      const data = response.data;
 
       if (data.success) {
         // Step 2: Redirect to Twitter authorization
@@ -65,14 +59,10 @@ const TwitterConnect = () => {
 
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:8006/api/user/twitter/disconnect', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-
-      const data = await response.json();
+      // ✅ Changed from fetch(http://localhost...) to api.post()
+      const response = await api.post('/user/twitter/disconnect');
+      
+      const data = response.data;
 
       if (data.success) {
         setConnected(false);

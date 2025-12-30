@@ -1,0 +1,157 @@
+.env
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+
+# Dependencies
+node_modules/
+
+# Build files
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.development.local
+
+# SSL certificates (don't upload these!)
+*.pem
+localhost*.pem
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+
+# /backend
+# │
+# ├── /config                  # Configuration files
+# │   ├── db.js               # Database connection setup
+# │   ├── keys.js             # API keys and secrets
+# │   └── middleware.js        # Middleware for authentication, etc.
+# │
+# ├── /controllers             # Controllers for handling requests
+# │   ├── authController.js    # Authentication logic
+# │   ├── postController.js     # Logic for managing posts
+# │   ├── userController.js     # User-related logic
+# │   └── ...                  # Other controllers as needed
+# │
+# ├── /models                  # Database models/schemas
+# │   ├── User.js              # User model
+# │   ├── Post.js              # Post model
+# │   └── ...                  # Other models as needed
+# │
+# ├── /routes                  # API routes
+# │   ├── authRoutes.js        # Authentication routes
+# │   ├── postRoutes.js        # Routes for posts
+# │   ├── userRoutes.js        # Routes for user management
+# │   └── ...                  # Other route files as needed
+# │
+# ├── /services                # Services for business logic
+# │   ├── facebookService.js    # Facebook API interactions
+# │   ├── instagramService.js    # Instagram API interactions
+# │   └── ...                  # Other services as needed
+# │
+# ├── /uploads                 # Directory for uploaded files
+# │   └── images               # Folder for images
+# │
+# ├── /utils                   # Utility functions
+# │   ├── logger.js            # Logger for logging requests
+# │   ├── errorHandler.js      # Error handling utilities
+# │   └── ...                  # Other utility functions
+# │
+# ├── .env                     # Environment variables
+# ├── server.js                # Entry point for the application
+# ├── package.json             # NPM package file
+# └── README.md                # Project documentation
+
+
+# // app.post("/postOnFB", async (req, res) => {
+# //   const { title, image } = req.body;
+# //   const PAGE_ACCESS_TOKEN =
+# //     "EAAHGb1E3XmIBO5xN8inq2PtfRzcjTgPC65YQ4gioMy9aQMlwEbK6OJU5KdC2wZA6zFwvDaN1rVHDbJqmyZCJJPlJ6a9V8l0oYK4TwiTbLPkb8x1xZCaMytgmAZCXBvUHaA1lc0zLF2uH1DUeKLm2ksUfQcrD8oX5Wmq9U5PhXP7ZAJTSgZBmHkaG9ZCgzZBCCvnGZA6UovW29iCa2VzGXYZC4RGlL43ZACoZCZCB0";
+# //   const PAGE_ID = "428233347043737";
+
+# //   try {
+# //     const titlePostResponse = await axios.post(
+# //       `https://graph.facebook.com/${PAGE_ID}/feed`,
+# //       {
+# //         message: title,
+# //         access_token: PAGE_ACCESS_TOKEN,
+# //       }
+# //     );
+# //     console.log("Text Post Response:", titlePostResponse.data);
+# //     if (image) {
+# //       // const imagePath = `http://localhost:8006/uploads/${image}`;
+
+# //       const imagePostResponse = await axios.post(
+# //         `https://graph.facebook.com/${PAGE_ID}/photos`,
+# //         {
+# //           url: image,
+# //           access_token: PAGE_ACCESS_TOKEN,
+# //           caption: title,
+# //         }
+# //       );
+
+# //       console.log("Image Post Response:", imagePostResponse.data);
+# //     }
+
+# //     console.log("Posting text:", title);
+# //     console.log("Posting image URL:", image);
+
+# //     res.status(200).json({
+# //       message: "Post successfully uploaded",
+# //       titlePost: titlePostResponse.data,
+# //     });
+# //   } catch (err) {
+# //     // Check for rate limit error
+# //     if (err.response && err.response.data && err.response.data.error) {
+# //       if (err.response.data.error.code === 368) {
+# //         return res.status(429).json({
+# //           error: "Rate limit exceeded. Please wait before trying again.",
+# //         });
+# //       }
+# //     }
+
+# //     console.error(
+# //       "Error in postOnFB:",
+# //       err.response ? err.response.data : err.message
+# //     );
+# //     res.status(400).json({
+# //       error: err.response ? err.response.data : "Error posting to Facebook",
+# //     });
+# //   }
+# // });

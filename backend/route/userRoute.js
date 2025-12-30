@@ -19,7 +19,7 @@ import {
 
 import { ensureAuth } from "../utils/auth.js";
 import Post from "../models/Post.js";
-
+import ScheduledPost from "../models/ScheduledPost.js";
 // Import Twitter controller ✅
 import {
   requestTwitterAuth,
@@ -64,12 +64,29 @@ router.get("/post-stats", ensureAuth(), getPostStats);
 // Get all posts
 router.get("/posts", ensureAuth(), async (req, res) => {
   try {
-    const posts = await Post.find({ userId: req.user.userId })
+    // Get immediate posts from Post model
+    const immediatePosts = await Post.find({ userId: req.user.userId })
       .sort({ postedAt: -1 })
-      .limit(50)
-      .select("-__v");
+      .select("-__v")
+      .lean();
 
-    return res.json({ posts });
+    // Get scheduled/posted posts from ScheduledPost model
+    const scheduledPosts = await ScheduledPost.find({ userId: req.user.userId })
+      .sort({ createdAt: -1 })
+      .select("-__v")
+      .lean();
+
+    // Combine both arrays
+    const allPosts = [...immediatePosts, ...scheduledPosts];
+    
+    // Sort by most recent first
+    allPosts.sort((a, b) => {
+      const dateA = a.postedAt || a.scheduledFor || a.createdAt;
+      const dateB = b.postedAt || b.scheduledFor || b.createdAt;
+      return new Date(dateB) - new Date(dateA);
+    });
+
+    return res.json({ posts: allPosts });
   } catch (err) {
     console.error("Get posts error:", err);
     return res.status(500).json({ error: "Failed to fetch posts" });
@@ -84,7 +101,16 @@ router.delete('/media-gallery/:id', ensureAuth(), deleteMediaGallery);
 router.delete("/posts/:postId", ensureAuth(), async (req, res) => {
   try {
     const { postId } = req.params;
-    const post = await Post.findById(postId);
+    
+    // Try to find in Post model first
+    let post = await Post.findById(postId);
+    let modelName = "Post";
+    
+    // If not found, try ScheduledPost model
+    if (!post) {
+      post = await ScheduledPost.findById(postId);
+      modelName = "ScheduledPost";
+    }
 
     if (!post) {
       return res.status(404).json({ error: "Post not found" });
@@ -95,8 +121,14 @@ router.delete("/posts/:postId", ensureAuth(), async (req, res) => {
       return res.status(403).json({ error: "Not authorized to delete this post" });
     }
 
-    await Post.findByIdAndDelete(postId);
-    console.log(`Deleted post ${postId} for user ${req.user.userId}`);
+    // Delete from correct model
+    if (modelName === "Post") {
+      await Post.findByIdAndDelete(postId);
+    } else {
+      await ScheduledPost.findByIdAndDelete(postId);
+    }
+
+    console.log(`✅ Deleted ${modelName} ${postId} for user ${req.user.userId}`);
 
     return res.json({ success: true, message: "Post deleted" });
   } catch (err) {
@@ -136,6 +168,55 @@ router.post("/schedule-post", ensureAuth(), createScheduledPost);
 router.get("/scheduled-posts", ensureAuth(), getScheduledPosts);
 router.put("/schedule-post/:postId", ensureAuth(), updateScheduledPost);
 router.delete("/schedule-post/:postId", ensureAuth(), deleteScheduledPost);
+
+
+
+// remove this -----?
+
+// userRoutes.js - Update scheduled post
+router.put("/schedule-post/:postId", ensureAuth(), async (req, res) => {
+  try {
+    const { postId } = req.params;
+    const userId = req.user._id;
+    const { caption, title, type, image, videoUrl, scheduledFor, platform, selectedPages } = req.body;
+
+    // Find post and verify ownership
+    const post = await ScheduledPost.findOne({ _id: postId, userId });
+    
+    if (!post) {
+      return res.status(404).json({ error: "Post not found or unauthorized" });
+    }
+
+    // Only allow editing if status is "scheduled"
+    if (post.status !== "scheduled") {
+      return res.status(400).json({ error: "Can only edit scheduled posts" });
+    }
+
+    // Update fields
+    post.caption = caption;
+    post.title = title;
+    post.type = type;
+    post.image = image;
+    post.videoUrl = videoUrl;
+    post.scheduledFor = new Date(scheduledFor);
+    post.platform = platform;
+    post.selectedPages = selectedPages;
+
+    await post.save();
+
+    console.log(`✅ Post ${postId} updated by user ${userId}`);
+    
+    res.json({ 
+      success: true, 
+      message: "Post updated successfully",
+      post 
+    });
+  } catch (error) {
+    console.error("Update scheduled post error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 
 export default router;
 

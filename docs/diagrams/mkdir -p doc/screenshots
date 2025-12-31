@@ -1,1 +1,12 @@
+## 🎆 Latest Update (v11.0 - Dec 31, 2025)
 
+### Smart Logout System
+![Logout Modal](doc/screenshots/disconnect-modal.png)
+
+### Platform Management
+![Platform Connections](doc/screenshots/platforms-connected.png)
+
+### Features:
+- ✅ Selective platform disconnection
+- ✅ Persistent connections across sessions
+- ✅ Individual disconnect buttons

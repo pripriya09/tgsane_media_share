@@ -1,4 +1,4 @@
-// backend/service/linkedinService.js
+// backend/service/linkedinService.js - COMPLETE VERSION
 
 import axios from "axios";
 import User from "../models/User.js";
@@ -95,8 +95,7 @@ async function uploadImageToLinkedIn(imageUrl, accessToken, memberUrn) {
   }
 }
 
-// ✅ NEW: Upload video to LinkedIn
-// ✅ FIXED: Upload video to LinkedIn
+// ✅ Upload video to LinkedIn
 async function uploadVideoToLinkedIn(videoUrl, accessToken, memberUrn, text) {
   try {
     console.log("📹 Starting LinkedIn video upload...");
@@ -162,7 +161,7 @@ async function uploadVideoToLinkedIn(videoUrl, accessToken, memberUrn, text) {
         timeout: 120000
       });
       
-      // ✅ Get ETag from response headers (important!)
+      // Get ETag from response headers
       const etag = uploadResponse.headers['etag'];
       if (etag) {
         uploadedPartIds.push(etag);
@@ -268,7 +267,6 @@ async function uploadVideoToLinkedIn(videoUrl, accessToken, memberUrn, text) {
   }
 }
 
-
 // ✅ Main posting function with video support
 export async function postToLinkedInHelper({ userId, text, imageUrl, videoUrl }) {
   try {
@@ -313,6 +311,8 @@ export async function postToLinkedInHelper({ userId, text, imageUrl, videoUrl })
       } catch (uploadErr) {
         console.error("⚠️ Video upload failed, posting text only:", uploadErr.message);
         // Continue without video if upload fails
+        shareMediaCategory = "NONE";
+        media = null;
       }
     }
     // ✅ Handle IMAGE upload
@@ -340,6 +340,8 @@ export async function postToLinkedInHelper({ userId, text, imageUrl, videoUrl })
       } catch (uploadErr) {
         console.error("⚠️ Image upload failed, posting text only:", uploadErr.message);
         // Continue without image if upload fails
+        shareMediaCategory = "NONE";
+        media = null;
       }
     }
 

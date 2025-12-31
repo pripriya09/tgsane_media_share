@@ -1,0 +1,624 @@
+/* dashboard.css - Shared styles for Dashboard, LogMedia, and DisconnectModal */
+
+/* ========================================
+   DASHBOARD NAVIGATION
+   ======================================== */
+
+   .dashboard-nav {
+    width: 200px;
+    padding: 20px;
+    background-color: #f5f5f5;
+    border-right: 2px solid #ddd;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  
+  .dashboard-nav h3 {
+    margin-bottom: 20px;
+    color: #333;
+    font-size: 20px;
+    font-weight: 700;
+  }
+  
+  .nav-links {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .nav-link {
+    padding: 10px 15px;
+    text-decoration: none;
+    color: #1976d2;
+    background-color: #fff;
+    border-radius: 6px;
+    border: 1px solid #ddd;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    display: block;
+  }
+  
+  .nav-link:hover {
+    background-color: #1976d2;
+    color: #fff;
+    transform: translateX(4px);
+    box-shadow: 0 2px 8px rgba(25, 118, 210, 0.2);
+  }
+  
+  .nav-link:active {
+    transform: translateX(2px);
+  }
+  
+  .logout-btn {
+    padding: 10px 15px;
+    background-color: #f44336;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+  }
+  
+  .logout-btn:hover {
+    background-color: #d32f2f;
+    box-shadow: 0 4px 12px rgba(244, 67, 54, 0.3);
+  }
+  
+  .logout-btn:active {
+    transform: scale(0.98);
+  }
+  
+  /* ========================================
+     LOGMEDIA COMPONENT
+     ======================================== */
+  
+  .logmedia-container {
+    padding: 16px;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  
+  /* Tutorial Modal */
+  .tutorial-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  
+  .tutorial-modal {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    max-width: 600px;
+    width: 100%;
+    text-align: center;
+    position: relative;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  }
+  
+  .tutorial-close-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: transparent;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    transition: all 0.2s;
+  }
+  
+  .tutorial-close-btn:hover {
+    background: #f0f0f0;
+    color: #333;
+  }
+  
+  .tutorial-modal h2 {
+    margin-bottom: 20px;
+    color: #333;
+  }
+  
+  .tutorial-modal iframe {
+    width: 100%;
+    height: 315px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+  }
+  
+  .tutorial-modal p {
+    margin: 20px 0;
+    font-size: 16px;
+    color: #555;
+    line-height: 1.6;
+  }
+  
+  .tutorial-cta-btn {
+    padding: 12px 24px;
+    font-size: 16px;
+    background: #1877f2;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+  }
+  
+  .tutorial-cta-btn:hover {
+    background: #145dbf;
+    box-shadow: 0 4px 12px rgba(24, 119, 242, 0.3);
+  }
+  
+  /* User Profile Section */
+  .user-profile-box {
+    margin-bottom: 30px;
+    padding: 20px;
+    background: #f0f2f5;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  }
+  
+  .user-profile-box h3 {
+    margin: 0 0 5px 0;
+    color: #333;
+    font-size: 20px;
+  }
+  
+  .user-profile-box p {
+    margin: 0;
+    color: #666;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+  
+  .connected-pages {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #ddd;
+  }
+  
+  .connected-pages strong {
+    color: #333;
+    font-size: 15px;
+  }
+  
+  .page-card {
+    margin-top: 8px;
+    padding: 10px;
+    background: white;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+  
+  .page-card-name {
+    font-weight: 600;
+    margin-bottom: 5px;
+    color: #333;
+  }
+  
+  .instagram-info {
+    font-size: 12px;
+    color: #666;
+    background: #e7f3ff;
+    padding: 8px;
+    border-radius: 4px;
+    margin-top: 5px;
+  }
+  
+  .instagram-info strong {
+    color: #E4405F;
+  }
+  
+  .instagram-id {
+    font-size: 11px;
+    color: #999;
+    display: block;
+    margin-top: 4px;
+  }
+  
+  /* Action Buttons */
+  .action-buttons {
+    text-align: center;
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  
+  .platform-btn {
+    padding: 14px 32px;
+    font-size: 16px;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+  
+  .platform-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+  
+  .platform-btn:active {
+    transform: translateY(0);
+  }
+  
+  .platform-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+  }
+  
+  .btn-facebook {
+    background: #1877f2;
+  }
+  
+  .btn-facebook.connected {
+    background: #42b72a;
+  }
+  
+  .btn-facebook.disconnect {
+    background:#42b72a;
+  }
+  
+  .btn-twitter {
+    background: #1DA1F2;
+  }
+  
+  .btn-twitter.connected {
+    background: #42b72a;
+  }
+  
+  .btn-linkedin {
+    background: #0077B5;
+  }
+  
+  .btn-linkedin.connected {
+    background: #42b72a;
+  }
+  
+  .btn-tutorial {
+    background: #fff;
+    color: #1877f2;
+    border: 2px solid #1877f2;
+  }
+  
+  .btn-tutorial:hover {
+    background: #1877f2;
+    color: white;
+  }
+  
+  /* Platform Info Boxes */
+  .platform-info-box {
+    margin-top: 20px;
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+  
+  .platform-info-box.twitter {
+    background: #e7f3ff;
+    border: 1px solid #1DA1F2;
+  }
+  
+  .platform-info-box.linkedin {
+    background: #e7f4ff;
+    border: 1px solid #0077B5;
+  }
+  
+  .platform-info-box svg {
+    vertical-align: middle;
+    margin-right: 10px;
+  }
+  
+  .platform-info-box strong {
+    font-size: 18px;
+  }
+  
+  .platform-info-box.twitter strong {
+    color: #1DA1F2;
+  }
+  
+  .platform-info-box.linkedin strong {
+    color: #0077B5;
+  }
+  
+  .platform-info-box p {
+    margin: 8px 0 0 0;
+    font-size: 14px;
+    color: #666;
+  }
+  
+  /* ========================================
+     DISCONNECT MODAL
+     ======================================== */
+  
+  .disconnect-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    padding: 20px;
+  }
+  
+  .disconnect-modal {
+    background: white;
+    border-radius: 16px;
+    max-width: 500px;
+    width: 100%;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    animation: modalSlideIn 0.3s ease;
+  }
+  
+  @keyframes modalSlideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .disconnect-modal-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .disconnect-modal-header h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+  }
+  
+  .disconnect-close-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: 28px;
+    cursor: pointer;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    line-height: 1;
+  }
+  
+  .disconnect-close-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: rotate(90deg);
+  }
+  
+  .disconnect-modal-body {
+    padding: 24px;
+  }
+  
+  .disconnect-question {
+    font-size: 16px;
+    color: #333;
+    margin-bottom: 20px;
+    font-weight: 500;
+  }
+  
+  .platform-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  
+  .platform-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px;
+    border: 2px solid #e0e0e0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .platform-option:hover {
+    border-color: #667eea;
+    background: #f8f9ff;
+  }
+  
+  .platform-option input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    accent-color: #667eea;
+  }
+  
+  .platform-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+  }
+  
+  .platform-icon {
+    font-size: 24px;
+  }
+  
+  .platform-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #333;
+  }
+  
+  .platform-hint {
+    font-size: 12px;
+    color: #666;
+  }
+  
+  .info-box {
+    background: #f0f8ff;
+    border: 1px solid #667eea;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 16px;
+  }
+  
+  .info-text {
+    margin: 0;
+    font-size: 13px;
+    color: #555;
+    line-height: 1.5;
+  }
+  
+  .disconnect-modal-footer {
+    display: flex;
+    gap: 12px;
+    padding: 20px 24px;
+    border-top: 1px solid #e0e0e0;
+    background: #f8f9fa;
+  }
+  
+  .btn-secondary {
+    flex: 1;
+    padding: 12px 24px;
+    background: #6c757d;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  .btn-secondary:hover {
+    background: #5a6268;
+    box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+  }
+  
+  .btn-secondary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  
+  .btn-primary {
+    flex: 1;
+    padding: 12px 24px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  }
+  
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
+  }
+  
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+  
+  .btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+  }
+  
+  /* ========================================
+     RESPONSIVE DESIGN
+     ======================================== */
+  
+  @media (max-width: 768px) {
+    .dashboard-nav {
+      width: 100%;
+      min-height: auto;
+      border-right: none;
+      border-bottom: 2px solid #ddd;
+    }
+  
+    .action-buttons {
+      flex-direction: column;
+      gap: 8px;
+    }
+  
+    .platform-btn {
+      width: 100%;
+    }
+  
+    .disconnect-modal {
+      max-width: 90%;
+    }
+  
+    .disconnect-modal-footer {
+      flex-direction: column;
+    }
+  
+    .btn-secondary,
+    .btn-primary {
+      width: 100%;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .dashboard-nav {
+      padding: 12px;
+    }
+  
+    .nav-link {
+      font-size: 14px;
+      padding: 8px 12px;
+    }
+  
+    .logmedia-container {
+      padding: 12px;
+    }
+  
+    .user-profile-box {
+      padding: 15px;
+    }
+  
+    .platform-btn {
+      padding: 12px 20px;
+      font-size: 14px;
+    }
+  }
+  

@@ -1,15 +1,16 @@
-// utils/postScheduler.js - FIXED VERSION
+// utils/postScheduler.js - COMPLETE FIXED VERSION
 import cron from "node-cron";
 import User from "../models/User.js";
-import ScheduledPost from "../models/ScheduledPost.js"; // ✅ CHANGED FROM Post to ScheduledPost
+import ScheduledPost from "../models/ScheduledPost.js";
 import { TwitterApi } from "twitter-api-v2";
 import fetch from "node-fetch";
 import { formatPostContent } from "./postHelpers.js";
 import fs from "fs";
 import path from "path";
 import axios from "axios";
+import FormData from "form-data";
 
-// ✅ Import LinkedIn helper
+// Import LinkedIn helper
 import { postToLinkedInHelper } from "./linkedinService.js";
 
 const FB_API_VERSION = "v24.0";
@@ -30,7 +31,6 @@ async function processScheduledPosts() {
   try {
     const dueDate = new Date();
     
-    // ✅ CHANGED: Use ScheduledPost model instead of Post
     const scheduledPosts = await ScheduledPost.find({
       status: "scheduled",
       scheduledFor: { $lte: dueDate }
@@ -57,13 +57,18 @@ async function publishPost(post) {
     
     if (!user) {
       console.error(`❌ User not found for post ${post._id}`);
-      post.status = "failed";
-      post.error = "User not found";
-      await post.save();
+      
+      // ✅ Use findByIdAndUpdate to avoid version conflicts
+      await ScheduledPost.findByIdAndUpdate(post._id, {
+        status: "failed",
+        error: "User not found"
+      });
       return;
     }
 
     console.log(`🚀 Publishing post ${post._id} for user ${user.email}`);
+    console.log(`📝 Post type: ${post.type}`);
+    console.log(`🎬 Media: ${post.image || post.videoUrl || 'No media'}`);
 
     const platformResults = [];
 
@@ -122,49 +127,55 @@ async function publishPost(post) {
       }
     }
 
-    // ✅ FIXED: Determine final status
     const allSuccess = platformResults.every(r => r.success);
     const anySuccess = platformResults.some(r => r.success);
 
-    post.results = platformResults;
+    // ✅ Use findByIdAndUpdate instead of post.save() to avoid version conflicts
+    const updateData = {
+      results: platformResults,
+      updatedAt: new Date()
+    };
 
-    // ✅ FIXED: Only retry if COMPLETELY failed (no platforms succeeded)
     if (!anySuccess && (!post.retryCount || post.retryCount < 3)) {
-      // Total failure - retry
-      post.retryCount = (post.retryCount || 0) + 1;
-      post.scheduledFor = new Date(Date.now() + 5 * 60 * 1000);
-      post.status = "scheduled";
-      post.error = "All platforms failed - will retry";
-      console.log(`🔄 Total failure - Will retry post ${post._id} (attempt ${post.retryCount}/3)`);
+      // Retry logic
+      updateData.retryCount = (post.retryCount || 0) + 1;
+      updateData.scheduledFor = new Date(Date.now() + 5 * 60 * 1000);
+      updateData.status = "scheduled";
+      updateData.error = "All platforms failed - will retry";
+      console.log(`🔄 Will retry post ${post._id} (attempt ${updateData.retryCount}/3)`);
     } else {
-      // ✅ At least one platform succeeded OR max retries reached
       if (anySuccess) {
-        post.status = "posted"; // ✅ Mark as posted
-        post.postedAt = new Date();
-        post.error = allSuccess ? null : "Posted to some platforms only";
+        updateData.status = "posted";
+        updateData.postedAt = new Date();
+        updateData.error = allSuccess ? null : "Posted to some platforms only";
         console.log(`✅ Post ${post._id} successfully posted`);
         
-        // Save media to gallery
+        // Save to gallery
         await saveToGallery(post, user);
       } else {
-        // Max retries reached
-        post.status = "failed";
-        post.error = "Failed after 3 attempts";
+        updateData.status = "failed";
+        updateData.error = "Failed after 3 attempts";
         console.log(`❌ Post ${post._id} failed permanently`);
       }
     }
 
-    await post.save();
-    console.log(`✅ Post ${post._id} processing complete - Status: ${post.status}`);
+    // ✅ Update using findByIdAndUpdate (no version conflict)
+    await ScheduledPost.findByIdAndUpdate(post._id, updateData, { new: true });
+    console.log(`✅ Post ${post._id} processing complete - Status: ${updateData.status}`);
 
   } catch (error) {
     console.error(`❌ Failed to publish post ${post._id}:`, error);
-    post.status = "failed";
-    post.error = error.message;
-    await post.save();
+    
+    // ✅ Use findByIdAndUpdate for error updates too
+    await ScheduledPost.findByIdAndUpdate(post._id, {
+      status: "failed",
+      error: error.message,
+      updatedAt: new Date()
+    });
   }
 }
-// Twitter publishing
+
+// ========== TWITTER PUBLISHING ========== ✅ ALREADY WORKING
 async function publishToTwitter(user, post, content) {
   try {
     const client = new TwitterApi({
@@ -224,35 +235,107 @@ async function publishToTwitter(user, post, content) {
   }
 }
 
-// Facebook publishing
+// ========== FACEBOOK PUBLISHING ========== 🔧 FIXED FOR VIDEO
 async function publishToFacebook(user, post, content) {
   try {
     const page = user.pages?.find(p => String(p.pageId) === String(post.pageId));
     if (!page) throw new Error("Page not found");
 
-    const endpoint = `https://graph.facebook.com/${FB_API_VERSION}/${page.pageId}/feed`;
-    const params = new URLSearchParams({
-      message: content,
-      access_token: page.pageAccessToken
-    });
+    const isVideo = post.type === "video" || post.videoUrl;
+    const mediaUrl = post.videoUrl || post.image;
 
-    if (post.image) {
-      params.set("link", post.image);
+    console.log(`📘 Facebook - Type: ${post.type}, HasVideo: ${!!post.videoUrl}, HasImage: ${!!post.image}`);
+
+    if (isVideo && mediaUrl) {
+      // ✅ VIDEO POST
+      console.log(`🎬 Posting VIDEO to Facebook: ${mediaUrl}`);
+
+      const endpoint = `https://graph.facebook.com/${FB_API_VERSION}/${page.pageId}/videos`;
+      
+      const params = new URLSearchParams({
+        description: content,
+        file_url: mediaUrl,  // ✅ Use file_url for videos
+        access_token: page.pageAccessToken
+      });
+
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        body: params
+      });
+
+      const json = await resp.json();
+      
+      if (json.error) {
+        console.error("❌ Facebook video error:", json.error);
+        throw new Error(json.error.message);
+      }
+
+      console.log(`✅ Facebook video posted: ${json.id}`);
+      return {
+        success: true,
+        postId: json.id
+      };
+
+    } else if (post.image) {
+      // ✅ IMAGE POST
+      console.log(`🖼️ Posting IMAGE to Facebook: ${post.image}`);
+
+      const endpoint = `https://graph.facebook.com/${FB_API_VERSION}/${page.pageId}/photos`;
+      
+      const params = new URLSearchParams({
+        message: content,
+        url: post.image,  // ✅ Use url parameter for images
+        access_token: page.pageAccessToken
+      });
+
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        body: params
+      });
+
+      const json = await resp.json();
+      
+      if (json.error) {
+        console.error("❌ Facebook image error:", json.error);
+        throw new Error(json.error.message);
+      }
+
+      console.log(`✅ Facebook image posted: ${json.id}`);
+      return {
+        success: true,
+        postId: json.id
+      };
+
+    } else {
+      // ✅ TEXT POST (no media)
+      console.log(`📝 Posting TEXT to Facebook`);
+
+      const endpoint = `https://graph.facebook.com/${FB_API_VERSION}/${page.pageId}/feed`;
+      
+      const params = new URLSearchParams({
+        message: content,
+        access_token: page.pageAccessToken
+      });
+
+      const resp = await fetch(endpoint, {
+        method: "POST",
+        body: params
+      });
+
+      const json = await resp.json();
+      
+      if (json.error) {
+        console.error("❌ Facebook text post error:", json.error);
+        throw new Error(json.error.message);
+      }
+
+      console.log(`✅ Facebook text post created: ${json.id}`);
+      return {
+        success: true,
+        postId: json.id
+      };
     }
 
-    const resp = await fetch(endpoint, {
-      method: "POST",
-      body: params
-    });
-
-    const json = await resp.json();
-    if (json.error) throw new Error(json.error.message);
-
-    console.log(`✅ Facebook post created: ${json.id}`);
-    return {
-      success: true,
-      postId: json.id
-    };
   } catch (error) {
     console.error("❌ Facebook error:", error);
     return {
@@ -262,7 +345,7 @@ async function publishToFacebook(user, post, content) {
   }
 }
 
-// Instagram publishing
+// ========== INSTAGRAM PUBLISHING ========== 🔧 FIXED FOR VIDEO
 async function publishToInstagram(user, post, content) {
   try {
     const page = user.pages?.find(p => String(p.pageId) === String(post.pageId));
@@ -270,42 +353,178 @@ async function publishToInstagram(user, post, content) {
       throw new Error("Instagram not connected");
     }
 
-    // Create container
-    const createResp = await fetch(
-      `https://graph.facebook.com/${FB_API_VERSION}/${page.instagramBusinessId}/media`,
-      {
-        method: "POST",
-        body: new URLSearchParams({
-          image_url: post.image,
-          caption: content,
-          access_token: page.pageAccessToken
-        })
+    const isVideo = post.type === "video" || post.videoUrl;
+    const mediaUrl = post.videoUrl || post.image;
+
+    if (!mediaUrl) {
+      throw new Error("No media URL provided");
+    }
+
+    console.log(`📸 Instagram - Type: ${post.type}, IsVideo: ${isVideo}, URL: ${mediaUrl}`);
+
+    if (isVideo) {
+      // ✅ VIDEO POST (REELS) - COMPLETELY REWRITTEN
+      console.log(`🎬 Posting VIDEO to Instagram as Reel: ${mediaUrl}`);
+
+      // Step 1: Create video container
+      const createParams = new URLSearchParams({
+        video_url: mediaUrl,
+        caption: content,
+        media_type: "REELS",
+        share_to_feed: "true", // ✅ IMPORTANT: Share to feed too
+        access_token: page.pageAccessToken
+      });
+
+      console.log(`📤 Creating Instagram Reel container...`);
+      
+      const createResp = await fetch(
+        `https://graph.facebook.com/${FB_API_VERSION}/${page.instagramBusinessId}/media`,
+        {
+          method: "POST",
+          body: createParams
+        }
+      );
+
+      const createJson = await createResp.json();
+      
+      if (createJson.error) {
+        console.error("❌ Instagram video container error:", createJson.error);
+        throw new Error(createJson.error.message);
       }
-    );
 
-    const createJson = await createResp.json();
-    if (createJson.error) throw new Error(createJson.error.message);
+      const containerId = createJson.id;
+      console.log(`✅ Instagram Reel container created: ${containerId}`);
 
-    // Publish container
-    const publishResp = await fetch(
-      `https://graph.facebook.com/${FB_API_VERSION}/${page.instagramBusinessId}/media_publish`,
-      {
-        method: "POST",
-        body: new URLSearchParams({
-          creation_id: createJson.id,
-          access_token: page.pageAccessToken
-        })
+      // ✅ Step 2: Poll status until FINISHED (critical!)
+      console.log(`⏳ Waiting for Instagram to process video...`);
+      
+      let isReady = false;
+      let attempts = 0;
+      const maxAttempts = 30; // 30 attempts * 5 seconds = 2.5 minutes max
+      let lastStatus = "UNKNOWN";
+      
+      while (!isReady && attempts < maxAttempts) {
+        attempts++;
+        
+        // Wait 5 seconds between checks
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        try {
+          const statusResp = await fetch(
+            `https://graph.facebook.com/${FB_API_VERSION}/${containerId}?fields=status_code,status&access_token=${page.pageAccessToken}`
+          );
+          
+          const statusJson = await statusResp.json();
+          lastStatus = statusJson.status_code || statusJson.status || "UNKNOWN";
+          
+          console.log(`🔍 Attempt ${attempts}/${maxAttempts} - Status: ${lastStatus}`);
+          
+          if (lastStatus === "FINISHED") {
+            isReady = true;
+            console.log(`✅ Video processing complete!`);
+            break;
+          } else if (lastStatus === "ERROR" || lastStatus === "FAILED") {
+            throw new Error(`Video processing failed with status: ${lastStatus}`);
+          } else {
+            console.log(`⏳ Still processing (${lastStatus})... waiting 5 more seconds`);
+          }
+        } catch (statusErr) {
+          console.warn(`⚠️ Status check error (attempt ${attempts}): ${statusErr.message}`);
+          
+          // If we can't check status after many attempts, try publishing anyway
+          if (attempts >= 15) {
+            console.warn(`⚠️ Cannot verify status after ${attempts} attempts, will try to publish...`);
+            isReady = true;
+            break;
+          }
+        }
       }
-    );
+      
+      if (!isReady) {
+        throw new Error(`Video processing timeout after ${attempts} attempts (last status: ${lastStatus}). Try a shorter video or wait and retry.`);
+      }
 
-    const publishJson = await publishResp.json();
-    if (publishJson.error) throw new Error(publishJson.error.message);
+      // Step 3: Publish the video
+      console.log(`📤 Publishing Reel to Instagram feed...`);
+      
+      const publishParams = new URLSearchParams({
+        creation_id: containerId,
+        access_token: page.pageAccessToken
+      });
+      
+      const publishResp = await fetch(
+        `https://graph.facebook.com/${FB_API_VERSION}/${page.instagramBusinessId}/media_publish`,
+        {
+          method: "POST",
+          body: publishParams
+        }
+      );
 
-    console.log(`✅ Instagram post created: ${publishJson.id}`);
-    return {
-      success: true,
-      postId: publishJson.id
-    };
+      const publishJson = await publishResp.json();
+      
+      if (publishJson.error) {
+        console.error("❌ Instagram Reel publish error:", publishJson.error);
+        throw new Error(publishJson.error.message || "Failed to publish Reel");
+      }
+
+      console.log(`✅ Instagram Reel posted successfully: ${publishJson.id}`);
+      return {
+        success: true,
+        postId: publishJson.id
+      };
+
+    } else {
+      // ✅ IMAGE POST (unchanged - already working)
+      console.log(`🖼️ Posting IMAGE to Instagram: ${mediaUrl}`);
+
+      // Create image container
+      const createResp = await fetch(
+        `https://graph.facebook.com/${FB_API_VERSION}/${page.instagramBusinessId}/media`,
+        {
+          method: "POST",
+          body: new URLSearchParams({
+            image_url: mediaUrl,
+            caption: content,
+            access_token: page.pageAccessToken
+          })
+        }
+      );
+
+      const createJson = await createResp.json();
+      
+      if (createJson.error) {
+        console.error("❌ Instagram image container error:", createJson.error);
+        throw new Error(createJson.error.message);
+      }
+
+      console.log(`✅ Instagram image container created: ${createJson.id}`);
+
+      // Publish image
+      const publishResp = await fetch(
+        `https://graph.facebook.com/${FB_API_VERSION}/${page.instagramBusinessId}/media_publish`,
+        {
+          method: "POST",
+          body: new URLSearchParams({
+            creation_id: createJson.id,
+            access_token: page.pageAccessToken
+          })
+        }
+      );
+
+      const publishJson = await publishResp.json();
+      
+      if (publishJson.error) {
+        console.error("❌ Instagram image publish error:", publishJson.error);
+        throw new Error(publishJson.error.message);
+      }
+
+      console.log(`✅ Instagram image posted: ${publishJson.id}`);
+      return {
+        success: true,
+        postId: publishJson.id
+      };
+    }
+
   } catch (error) {
     console.error("❌ Instagram error:", error);
     return {
@@ -315,23 +534,63 @@ async function publishToInstagram(user, post, content) {
   }
 }
 
-// ✅ LinkedIn publishing
+// ========== LINKEDIN PUBLISHING ========== 🔧 FIXED FOR VIDEO
 async function publishToLinkedIn(user, post, content) {
   try {
     console.log(`📤 Publishing to LinkedIn for user: ${user._id}`);
+    console.log(`💼 LinkedIn - Type: ${post.type}, HasVideo: ${!!post.videoUrl}, HasImage: ${!!post.image}`);
 
-    const result = await postToLinkedInHelper({
-      userId: user._id,
-      text: content,
-      imageUrl: post.image || null
-    });
+    const isVideo = post.type === "video" || post.videoUrl;
+    const mediaUrl = post.videoUrl || post.image;
 
-    console.log(`✅ LinkedIn post created: ${result.id}`);
+    if (isVideo && mediaUrl) {
+      // ✅ VIDEO POST
+      console.log(`🎬 Posting VIDEO to LinkedIn: ${mediaUrl}`);
 
-    return {
-      success: true,
-      postId: result.id
-    };
+      const result = await postToLinkedInHelper({
+        userId: user._id,
+        text: content,
+        videoUrl: mediaUrl  // ✅ Pass videoUrl for videos
+      });
+
+      console.log(`✅ LinkedIn video posted: ${result.id}`);
+      return {
+        success: true,
+        postId: result.id
+      };
+
+    } else if (post.image) {
+      // ✅ IMAGE POST
+      console.log(`🖼️ Posting IMAGE to LinkedIn: ${post.image}`);
+
+      const result = await postToLinkedInHelper({
+        userId: user._id,
+        text: content,
+        imageUrl: post.image  // ✅ Pass imageUrl for images
+      });
+
+      console.log(`✅ LinkedIn image posted: ${result.id}`);
+      return {
+        success: true,
+        postId: result.id
+      };
+
+    } else {
+      // ✅ TEXT POST
+      console.log(`📝 Posting TEXT to LinkedIn`);
+
+      const result = await postToLinkedInHelper({
+        userId: user._id,
+        text: content
+      });
+
+      console.log(`✅ LinkedIn text post created: ${result.id}`);
+      return {
+        success: true,
+        postId: result.id
+      };
+    }
+
   } catch (error) {
     console.error("❌ LinkedIn publish error:", error);
     return {
@@ -343,12 +602,10 @@ async function publishToLinkedIn(user, post, content) {
 
 async function saveToGallery(post, user) {
   try {
-    // Only save if post was successful
     if (post.status !== "posted") return;
 
     const MediaGallery = (await import("../models/MediaGallery.js")).default;
 
-    // Check if media already exists in gallery
     const mediaUrl = post.image || post.videoUrl;
     if (!mediaUrl) return;
 
@@ -362,13 +619,12 @@ async function saveToGallery(post, user) {
       return;
     }
 
-    // Create new gallery entry
     const newMedia = new MediaGallery({
       userId: user._id,
       url: mediaUrl,
       type: post.type === "video" ? "video" : "image",
       originalName: post.title || post.caption || "Scheduled Post Media",
-      size: 0, // Unknown size
+      size: 0,
       format: post.type === "video" ? "mp4" : "jpg",
       uploadedAt: new Date()
     });
@@ -378,6 +634,5 @@ async function saveToGallery(post, user) {
 
   } catch (error) {
     console.error("❌ Failed to save to gallery:", error);
-    // Don't throw - gallery save is not critical
   }
 }

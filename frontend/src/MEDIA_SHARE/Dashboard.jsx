@@ -1,18 +1,12 @@
-// Dashboard.jsx - UPDATED WITH SCHEDULE LINK
-import React, { useEffect,  } from "react";
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+// Dashboard.jsx - UPDATED WITH EXTERNAL CSS
+import React, { useEffect, useState } from "react";
+import { Link, useNavigate } from 'react-router-dom';
+import DisconnectModal from './DisconnectModal';
+import './dashboardmedia.css';
 
 function Dashboard() {
   const navigate = useNavigate();
-  const location = useLocation(); 
-
-  const handleLogout = () => {
-    localStorage.removeItem("ms_token");
-    localStorage.removeItem("ms_user");
-    localStorage.removeItem("ms_pages");
-    navigate("/");
-    alert("Logged out successfully");
-  };
+  const [showDisconnectModal, setShowDisconnectModal] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -21,161 +15,62 @@ function Dashboard() {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
-  
+
+  const handleLogoutClick = () => {
+    setShowDisconnectModal(true);
+  };
+
+  const handleLogout = () => {
+    console.log('🚪 Logging out...');
+    localStorage.removeItem("ms_token");
+    setShowDisconnectModal(false);
+    navigate("/");
+    alert("Logged out successfully");
+    
+    console.log('✅ Logged out - platform connections preserved');
+  };
+
   return (
-    <nav
-      style={{
-        width: "200px",
-        padding: "20px",
-        backgroundColor: "#f5f5f5",
-        borderRight: "2px solid #ddd",
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "space-between",
-      }}
-    >
-      <div>
-        <h3 style={{ marginBottom: "20px", color: "#333" }}>Menu</h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          <Link
-            to="/home/connect"
-            style={{
-              padding: "10px 15px",
-              textDecoration: "none",
-              color: "#1976d2",
-              backgroundColor: "#fff",
-              borderRadius: "6px",
-              border: "1px solid #ddd",
-              transition: "all 0.2s",
-            }}
-            onMouseOver={(e) => {
-              e.target.style.backgroundColor = "#1976d2";
-              e.target.style.color = "#fff";
-            }}
-            onMouseOut={(e) => {
-              e.target.style.backgroundColor = "#fff";
-              e.target.style.color = "#1976d2";
-            }}
-          >
-            🔗 Connect FB
-          </Link>
+    <>
+      <nav className="dashboard-nav">
+        <div>
+          <h3>Menu</h3>
+          <div className="nav-links">
+            <Link to="/home/connect" className="nav-link">
+              🔗 Connect FB
+            </Link>
 
-          <Link
-            to="/home/create"
-            style={{
-              padding: "10px 15px",
-              textDecoration: "none",
-              color: "#1976d2",
-              backgroundColor: "#fff",
-              borderRadius: "6px",
-              border: "1px solid #ddd",
-              transition: "all 0.2s",
-            }}
-            onMouseOver={(e) => {
-              e.target.style.backgroundColor = "#1976d2";
-              e.target.style.color = "#fff";
-            }}
-            onMouseOut={(e) => {
-              e.target.style.backgroundColor = "#fff";
-              e.target.style.color = "#1976d2";
-            }}
-          >
-            ✏️ Create Post
-          </Link>
+            <Link to="/home/create" className="nav-link">
+              ✏️ Create Post
+            </Link>
 
-          {/* ✅ NEW: Schedule Post Link */}
-          <Link
-            to="/home/schedule"
-            style={{
-              padding: "10px 15px",
-              textDecoration: "none",
-              color: "#1976d2",
-              backgroundColor: "#fff",
-              borderRadius: "6px",
-              border: "1px solid #ddd",
-              transition: "all 0.2s",
-            }}
-            onMouseOver={(e) => {
-              e.target.style.backgroundColor = "#1976d2";
-              e.target.style.color = "#fff";
-            }}
-            onMouseOut={(e) => {
-              e.target.style.backgroundColor = "#fff";
-              e.target.style.color = "#1976d2";
-            }}
-          >
-            📅 Schedule Posts
-          </Link>
+            <Link to="/home/schedule" className="nav-link">
+              📅 Schedule Posts
+            </Link>
 
-          <Link
-            to="/home/history"
-            style={{
-              padding: "10px 15px",
-              textDecoration: "none",
-              color: "#1976d2",
-              backgroundColor: "#fff",
-              borderRadius: "6px",
-              border: "1px solid #ddd",
-              transition: "all 0.2s",
-            }}
-            onMouseOver={(e) => {
-              e.target.style.backgroundColor = "#1976d2";
-              e.target.style.color = "#fff";
-            }}
-            onMouseOut={(e) => {
-              e.target.style.backgroundColor = "#fff";
-              e.target.style.color = "#1976d2";
-            }}
-          >
-            📊 Posts History
-          </Link>
+            <Link to="/home/history" className="nav-link">
+              📊 Posts History
+            </Link>
 
-          <Link // ← Change button to Link
-            to="/home/media-gallery"
-            style={{
-              padding: "10px 15px",
-              textDecoration: "none",
-              color: "#1976d2",
-              backgroundColor: "#fff",
-              borderRadius: "6px",
-              border: "1px solid #ddd",
-              transition: "all 0.2s",
-            }}
-            onMouseOver={(e) => {
-              e.target.style.backgroundColor = "#1976d2";
-              e.target.style.color = "#fff";
-            }}
-            onMouseOut={(e) => {
-              e.target.style.backgroundColor = "#fff";
-              e.target.style.color = "#1976d2";
-            }}
-          >
-            🖼️ Media Gallery
-          </Link>
+            <Link to="/home/media-gallery" className="nav-link">
+              🖼️ Media Gallery
+            </Link>
+          </div>
         </div>
-      </div>
 
-      {/* Logout Button at Bottom */}
-      <button
-        onClick={handleLogout}
-        style={{
-          padding: "10px 15px",
-          backgroundColor: "#f44336",
-          color: "#fff",
-          border: "none",
-          borderRadius: "6px",
-          cursor: "pointer",
-          fontSize: "14px",
-          fontWeight: "600",
-          transition: "all 0.2s",
-        }}
-        onMouseOver={(e) => (e.target.style.backgroundColor = "#d32f2f")}
-        onMouseOut={(e) => (e.target.style.backgroundColor = "#f44336")}
-      >
-        🚪 Logout
-      </button>
-    </nav>
+        {/* Logout Button */}
+        <button onClick={handleLogoutClick} className="logout-btn">
+          🚪 Logout
+        </button>
+      </nav>
+
+      {/* Disconnect Modal */}
+      <DisconnectModal
+        isOpen={showDisconnectModal}
+        onClose={() => setShowDisconnectModal(false)}
+        onLogout={handleLogout}
+      />
+    </>
   );
 }
 

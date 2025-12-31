@@ -4,7 +4,8 @@ import fetch from "node-fetch";
 import { v2 as cloudinary } from "cloudinary";
 import streamifier from "streamifier";
 import MediaGallery from "../models/MediaGallery.js";
-
+import PageToken from "../models/PageToken.js";
+import UserToken from "../models/UserToken.js";
 import Post from "../models/Post.js";
 import ScheduledPost from "../models/ScheduledPost.js";
 import axios from "axios"
@@ -34,6 +35,79 @@ async function saveToGallery(userId, url, type, originalName = "Posted Media") {
     return null;
   }
 }
+
+
+export const getUserProfile = async (req, res) => {
+  try {
+    const userId = req.user.userId || req.user._id;
+    
+    console.log('📡 Getting profile for user:', userId);
+    
+    const user = await User.findById(userId).select(
+      '_id username email facebookConnected twitterConnected linkedin pages'  // ✅ Include _id
+    );
+
+    if (!user) {
+      console.error('❌ User not found:', userId);
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    console.log('✅ User found:', user.username);
+    console.log('📊 User _id:', user._id);
+    console.log('📊 Facebook connected:', user.facebookConnected);
+
+    // Build profile response
+    const profile = {
+      _id: user._id,  // ✅ Add this!
+      username: user.username,
+      email: user.email,
+      
+      // Facebook/Instagram (via pages)
+      facebook: {
+        connected: user.facebookConnected || false,
+        pages: user.pages?.map(page => ({
+          pageId: page.pageId,
+          pageName: page.pageName,
+          hasInstagram: !!page.instagramBusinessId,
+          instagramUsername: page.instagramUsername
+        })) || []
+      },
+      
+      // Twitter
+      twitter: {
+        connected: user.twitterConnected || false,
+        username: user.twitterUsername,
+        name: user.twitterName
+      },
+      
+      // LinkedIn
+      linkedin: {
+        connected: user.linkedin?.connected || false,
+        name: user.linkedin?.name,
+        email: user.linkedin?.email,
+        picture: user.linkedin?.picture,
+        userId: user.linkedin?.userId
+      }
+    };
+
+    console.log('✅ Returning profile with _id:', profile._id);
+
+    return res.json({
+      success: true,
+      profile
+    });
+
+  } catch (error) {
+    console.error('❌ Get user profile error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
 
 
 export async function connectFacebook(req, res) {
@@ -1185,70 +1259,6 @@ export async function deleteScheduledPost(req, res) {
 
 
 
-export const getUserProfile = async (req, res) => {
-  try {
-    const userId = req.user.userId || req.user._id;
-    
-    const user = await User.findById(userId).select(
-      'username email facebookConnected twitterConnected linkedin pages'
-    );
-
-    if (!user) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'User not found' 
-      });
-    }
-
-    // Build profile response
-    const profile = {
-      username: user.username,
-      email: user.email,
-      
-      // Facebook/Instagram (via pages)
-      facebook: {
-        connected: user.facebookConnected || false,
-        pages: user.pages?.map(page => ({
-          pageId: page.pageId,
-          pageName: page.pageName,
-          pageProfilePic: page.pageProfilePic,
-          hasInstagram: !!page.instagramBusinessId,
-          instagramUsername: page.instagramUsername
-        })) || []
-      },
-      
-      // Twitter
-      twitter: {
-        connected: user.twitterConnected || false,
-        username: user.twitterUsername,
-        profileImage: user.twitterProfileImage,
-        name: user.twitterName
-      },
-      
-      // LinkedIn
-      linkedin: {
-        connected: user.linkedin?.connected || false,
-        name: user.linkedin?.name,
-        email: user.linkedin?.email,
-        picture: user.linkedin?.picture,
-        userId: user.linkedin?.userId
-      }
-    };
-
-    return res.json({ 
-      success: true, 
-      profile 
-    });
-    
-  } catch (error) {
-    console.error('Get user profile error:', error);
-    return res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
-};
-
 
 
 //----------------------------gallary uploded
@@ -1343,5 +1353,49 @@ export const deleteMediaGallery = async (req, res) => {
   } catch (err) {
     console.error("❌ Delete error:", err);
     return res.status(500).json({ error: err.message });
+  }
+};
+
+
+
+export const disconnectFacebook = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        error: "User not found" 
+      });
+    }
+
+    console.log(`🔄 Disconnecting Facebook/Instagram for user: ${user._id}`);
+
+    // Clear Facebook/Instagram connection
+    user.facebookConnected = false;
+    user.pages = [];
+    user.facebookUserId = null;
+    
+    await user.save();
+
+    // Also clear PageToken and UserToken entries
+    const deletedPageTokens = await PageToken.deleteMany({ userId: user._id });
+    const deletedUserTokens = await UserToken.deleteMany({ userId: user._id });
+
+    console.log(`✅ Facebook disconnected for user: ${user._id}`);
+    console.log(`   - Deleted ${deletedPageTokens.deletedCount} page tokens`);
+    console.log(`   - Deleted ${deletedUserTokens.deletedCount} user tokens`);
+
+    return res.json({ 
+      success: true, 
+      message: "Facebook and Instagram disconnected" 
+    });
+
+  } catch (error) {
+    console.error("❌ Facebook disconnect error:", error);
+    return res.status(500).json({ 
+      success: false,
+      error: "Failed to disconnect Facebook" 
+    });
   }
 };

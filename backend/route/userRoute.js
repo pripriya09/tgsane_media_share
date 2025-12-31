@@ -15,6 +15,8 @@ import {
   uploadMediaToGallery,
   getMediaGallery,
   deleteMediaGallery,
+  disconnectFacebook,
+  getUserProfile,
 } from "../controller/userController.js";
 
 import { ensureAuth } from "../utils/auth.js";
@@ -53,7 +55,7 @@ const router = express.Router();
 //   dest: "uploads/",
 //   limits: { fileSize: 10 * 1024 * 1024 }
 // });
-
+router.get('/profile', ensureAuth(), getUserProfile);
 // Facebook routes
 router.post("/connect/facebook", ensureAuth(), connectFacebook);
 router.get("/pages", ensureAuth(), getConnectedPages);
@@ -145,7 +147,7 @@ router.post("/story", ensureAuth(), postStory);
 // Authentication
 router.post('/twitter/auth/request', ensureAuth(), requestTwitterAuth);
 router.post('/twitter/auth/callback', handleTwitterCallback);
-router.post('/twitter/disconnect', ensureAuth(), disconnectTwitter);
+router.post('/twitter/disconnectX', ensureAuth(), disconnectTwitter);
 router.get('/twitter/status', ensureAuth(), getTwitterStatus);
 
 // Posting
@@ -160,7 +162,7 @@ router.get('/twitter/posts', ensureAuth(), getTwitterPosts);
 router.get("/linkedin/auth", ensureAuth(), initiateLinkedInAuth);
 router.post("/linkedin/callback", ensureAuth(), exchangeLinkedInCode); // ✅ Changed to POST
 router.get("/linkedin/status", ensureAuth(), getLinkedInStatus);
-router.post("/linkedin/disconnect", ensureAuth(), disconnectLinkedIn);
+router.post("/linkedin/disconnectLD", ensureAuth(), disconnectLinkedIn);
 
 
 // post schedule
@@ -170,52 +172,7 @@ router.put("/schedule-post/:postId", ensureAuth(), updateScheduledPost);
 router.delete("/schedule-post/:postId", ensureAuth(), deleteScheduledPost);
 
 
-
-// remove this -----?
-
-// userRoutes.js - Update scheduled post
-router.put("/schedule-post/:postId", ensureAuth(), async (req, res) => {
-  try {
-    const { postId } = req.params;
-    const userId = req.user._id;
-    const { caption, title, type, image, videoUrl, scheduledFor, platform, selectedPages } = req.body;
-
-    // Find post and verify ownership
-    const post = await ScheduledPost.findOne({ _id: postId, userId });
-    
-    if (!post) {
-      return res.status(404).json({ error: "Post not found or unauthorized" });
-    }
-
-    // Only allow editing if status is "scheduled"
-    if (post.status !== "scheduled") {
-      return res.status(400).json({ error: "Can only edit scheduled posts" });
-    }
-
-    // Update fields
-    post.caption = caption;
-    post.title = title;
-    post.type = type;
-    post.image = image;
-    post.videoUrl = videoUrl;
-    post.scheduledFor = new Date(scheduledFor);
-    post.platform = platform;
-    post.selectedPages = selectedPages;
-
-    await post.save();
-
-    console.log(`✅ Post ${postId} updated by user ${userId}`);
-    
-    res.json({ 
-      success: true, 
-      message: "Post updated successfully",
-      post 
-    });
-  } catch (error) {
-    console.error("Update scheduled post error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+router.post("/facebook/disconnectFB", ensureAuth(), disconnectFacebook);
 
 
 export default router;

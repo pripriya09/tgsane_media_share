@@ -38,6 +38,7 @@ import TwitterCallback from './TwitterCallback'; // ✅ ADD THIS
 import LinkedInCallback from './LinkedInCallback'; // ✅ ADD THIS
 import SchedulePost from './SchedulePost';
 import MediaGallery from './MediaGallery';
+import YouTubeCallback from './YouTubeCallback';
 // Protected Route Component
 function ProtectedRoute({ children, requireAdmin = false }) {
   const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
@@ -64,7 +65,7 @@ function AppRoutes() {
       {/* ✅ OAuth Callback Routes (PUBLIC - outside protected routes) */}
       <Route path="/auth/twitter/callback" element={<TwitterCallback />} />
         <Route path="/auth/linkedin/callback" element={<LinkedInCallback />} />
-        
+        <Route path="/auth/youtube/callback" element={<YouTubeCallback />} />
         {/* Admin Routes */}
         <Route 
           path="/admin/dashboard" 

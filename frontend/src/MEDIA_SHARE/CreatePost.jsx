@@ -42,6 +42,11 @@ const [linkedInConnected, setLinkedInConnected] = useState(false);
 const [linkedInName, setLinkedInName] = useState("");
 
 
+// YouTube state
+const [postToYouTube, setPostToYouTube] = useState(false);
+const [youTubeConnected, setYouTubeConnected] = useState(false);
+const [youTubeChannelName, setYouTubeChannelName] = useState("");
+
 
     //  Scheduling states
     const [isScheduling, setIsScheduling] = useState(false);
@@ -124,7 +129,8 @@ const fonts = [
     fetchContent();
     loadPagesForUser();
     checkTwitterConnection();
-    checkLinkedInConnection(); // ✅ ADD THIS
+    checkLinkedInConnection();
+    checkYouTubeConnection();
   }, []);
   
   useEffect(() => {
@@ -567,6 +573,147 @@ const connectLinkedIn = async () => {
     }
   };
 
+  // ✅ YouTube Success Modal Function
+function showYouTubeSuccessModal(youtubeData) {
+  const { videoId, title, url } = youtubeData;
+  
+  // Create modal overlay
+  const modalOverlay = document.createElement('div');
+  modalOverlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    animation: fadeIn 0.3s ease;
+  `;
+  
+  // Create modal content
+  const modal = document.createElement('div');
+  modal.style.cssText = `
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    max-width: 500px;
+    width: 90%;
+    text-align: center;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    animation: slideUp 0.3s ease;
+  `;
+  
+  modal.innerHTML = `
+    <style>
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes slideUp {
+        from { transform: translateY(50px); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+      .youtube-icon {
+        width: 80px;
+        height: 80px;
+        margin: 0 auto 20px;
+        background: #FF0000;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: bounce 0.6s ease;
+      }
+      @keyframes bounce {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+      }
+      .checkmark {
+        color: white;
+        font-size: 40px;
+        font-weight: bold;
+      }
+    </style>
+    
+    <div class="youtube-icon">
+      <span class="checkmark">✓</span>
+    </div>
+    
+    <h2 style="color: #333; margin-bottom: 10px; font-size: 24px;">
+      🎉 Video Uploaded to YouTube!
+    </h2>
+    
+    <p style="color: #666; margin-bottom: 20px; font-size: 16px;">
+      <strong>${title}</strong>
+    </p>
+    
+    <p style="color: #999; margin-bottom: 25px; font-size: 14px;">
+      Video ID: <code style="background: #f5f5f5; padding: 2px 8px; border-radius: 4px;">${videoId}</code>
+    </p>
+    
+    <div style="display: flex; gap: 10px; justify-content: center;">
+      <a 
+        href="${url}" 
+        target="_blank" 
+        rel="noopener noreferrer"
+        style="
+          background: #FF0000;
+          color: white;
+          padding: 12px 24px;
+          border-radius: 6px;
+          text-decoration: none;
+          font-weight: 600;
+          display: inline-block;
+          transition: background 0.3s;
+        "
+        onmouseover="this.style.background='#CC0000'"
+        onmouseout="this.style.background='#FF0000'"
+      >
+        📺 View on YouTube
+      </a>
+      
+      <button 
+        onclick="this.closest('.modal-overlay').remove()"
+        style="
+          background: #f0f0f0;
+          color: #333;
+          padding: 12px 24px;
+          border-radius: 6px;
+          border: none;
+          font-weight: 600;
+          cursor: pointer;
+          transition: background 0.3s;
+        "
+        onmouseover="this.style.background='#e0e0e0'"
+        onmouseout="this.style.background='#f0f0f0'"
+      >
+        Close
+      </button>
+    </div>
+  `;
+  
+  modalOverlay.className = 'modal-overlay';
+  modalOverlay.appendChild(modal);
+  document.body.appendChild(modalOverlay);
+  
+  // Close on overlay click
+  modalOverlay.addEventListener('click', (e) => {
+    if (e.target === modalOverlay) {
+      modalOverlay.remove();
+    }
+  });
+  
+  // Auto-close after 10 seconds
+  setTimeout(() => {
+    if (document.body.contains(modalOverlay)) {
+      modalOverlay.remove();
+    }
+  }, 10000);
+}
+
 
   async function handlePost(cont) {
     try {
@@ -602,6 +749,7 @@ const connectLinkedIn = async () => {
   
           if (response.data.success) {
             alert("✅ Story posted successfully! Expires in 24 hours.");
+            // ✅ Remove the posted content
             setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
           }
         } catch (err) {
@@ -612,108 +760,102 @@ const connectLinkedIn = async () => {
         return;
       }
   
-   // Check platform selection
-if (!postToFB && !postToIG && !postToTwitter && !postToLinkedIn) {
-  alert("Select at least one platform (Facebook, Instagram, Twitter, or LinkedIn)");
-  return;
-}
-
-  
-      // ✅ SCHEDULE POST
-// ✅ SCHEDULE POST (with edit support)
-if (isScheduling) {
-  if (!scheduledDateTime) {
-    alert("❌ Please select a date and time for scheduling");
-    return;
-  }
-
-  const scheduleDate = new Date(scheduledDateTime);
-  if (scheduleDate <= new Date()) {
-    alert("❌ Scheduled time must be in the future");
-    return;
-  }
-
-  const platforms = [];
-  if (postToTwitter) platforms.push("twitter");
-  if (postToFB) platforms.push("facebook");
-  if (postToIG) platforms.push("instagram");
-  if (postToLinkedIn) platforms.push("linkedin");
-
-  const hashtagArray = hashtags
-    .split(/[,\s]+/)
-    .filter(tag => tag.trim())
-    .map(tag => tag.replace("#", ""));
-
-  setLoading(true);
-
-  try {
-    const payload = {
-      title: cont.title || title || "",
-      caption: cont.title || title || "",
-      platform: platforms,
-      scheduledFor: scheduleDate.toISOString(),
-      hashtags: hashtagArray,
-      type: cont.type,
-      image: cont.image || null,
-      videoUrl: cont.videoUrl || null,
-      pageId: (postToFB || postToIG) ? selectedPage : null
-    };
-
-    if (cont.type === "carousel") {
-      payload.items = cont.items;
-    }
-
-    let response;
-    
-    // ✅ Check if we're in edit mode
-    if (editMode && editingPostId) {
-      // UPDATE existing post
-      response = await api.put(`/user/schedule-post/${editingPostId}`, payload);
-      alert(`✅ Post updated and scheduled for ${scheduleDate.toLocaleString()}!`);
-    } else {
-      // CREATE new post
-      response = await api.post("/user/schedule-post", payload);
-      alert(`✅ Post scheduled for ${scheduleDate.toLocaleString()}!`);
-    }
-
-    if (response.data.success) {
-      // Clear data
-      setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
-      setIsScheduling(false);
-      setScheduledDateTime("");
-      setHashtags("");
-      
-      // Clear edit mode
-      if (editMode) {
-        localStorage.removeItem("editScheduledPost");
-        setEditMode(false);
-        setEditingPostId(null);
+      // Check platform selection
+      if (!postToFB && !postToIG && !postToTwitter && !postToLinkedIn && !postToYouTube) {
+        alert("Select at least one platform (Facebook, Instagram, Twitter, LinkedIn, or YouTube)");
+        return;
       }
-    }
-  } catch (error) {
-    alert("❌ Failed: " + (error.response?.data?.error || error.message));
-  } finally {
-    setLoading(false);
-  }
-  return;
-}
-
+  
+      // ✅ SCHEDULE POST (with edit support)
+      if (isScheduling) {
+        if (!scheduledDateTime) {
+          alert("❌ Please select a date and time for scheduling");
+          return;
+        }
+  
+        const scheduleDate = new Date(scheduledDateTime);
+        if (scheduleDate <= new Date()) {
+          alert("❌ Scheduled time must be in the future");
+          return;
+        }
+  
+        const platforms = [];
+        if (postToTwitter) platforms.push("twitter");
+        if (postToFB) platforms.push("facebook");
+        if (postToIG) platforms.push("instagram");
+        if (postToLinkedIn) platforms.push("linkedin");
+        if (postToYouTube) platforms.push("youtube");
+  
+        const hashtagArray = hashtags
+          .split(/[,\s]+/)
+          .filter(tag => tag.trim())
+          .map(tag => tag.replace("#", ""));
+  
+        setLoading(true);
+  
+        try {
+          const payload = {
+            title: cont.title || title || "",
+            caption: cont.title || title || "",
+            platform: platforms,
+            scheduledFor: scheduleDate.toISOString(),
+            hashtags: hashtagArray,
+            type: cont.type,
+            image: cont.image || null,
+            videoUrl: cont.videoUrl || null,
+            pageId: (postToFB || postToIG) ? selectedPage : null
+          };
+  
+          if (cont.type === "carousel") {
+            payload.items = cont.items;
+          }
+  
+          let response;
+          
+          if (editMode && editingPostId) {
+            response = await api.put(`/user/schedule-post/${editingPostId}`, payload);
+            alert(`✅ Post updated and scheduled for ${scheduleDate.toLocaleString()}!`);
+          } else {
+            response = await api.post("/user/schedule-post", payload);
+            alert(`✅ Post scheduled for ${scheduleDate.toLocaleString()}!`);
+          }
+  
+          if (response.data.success) {
+            // ✅ Clear uploaded content
+            setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
+            setIsScheduling(false);
+            setScheduledDateTime("");
+            setHashtags("");
+            
+            if (editMode) {
+              localStorage.removeItem("editScheduledPost");
+              setEditMode(false);
+              setEditingPostId(null);
+            }
+          }
+        } catch (error) {
+          alert("❌ Failed: " + (error.response?.data?.error || error.message));
+        } finally {
+          setLoading(false);
+        }
+        return;
+      }
   
       // ✅ IMMEDIATE POST
       
-      // ✅ FIXED: Only validate selectedPage if posting to FB or IG
+      // Only validate selectedPage if posting to FB or IG
       if ((postToFB || postToIG) && !selectedPage) {
         alert("❌ Please select a Facebook page for Facebook/Instagram posting");
         return;
       }
   
-      // ✅ Check Instagram availability
+      // Check Instagram availability
       if (postToIG && !currentPageHasIG()) {
         alert("❌ Selected page doesn't have Instagram connected");
         return;
       }
   
-      // ✅ Check Twitter connection
+      // Check Twitter connection
       if (postToTwitter && !twitterConnected) {
         alert("❌ Twitter not connected. Please connect Twitter first.");
         return;
@@ -726,16 +868,28 @@ if (isScheduling) {
         }
       }
   
-      // ✅ Check LinkedIn connection
-if (postToLinkedIn && !linkedInConnected) {
-  alert("LinkedIn not connected. Please connect LinkedIn first.");
-  return;
-}
-
+      // Check LinkedIn connection
+      if (postToLinkedIn && !linkedInConnected) {
+        alert("❌ LinkedIn not connected. Please connect LinkedIn first.");
+        return;
+      }
+  
       // Check Instagram rate limit
       if (postToIG && rateLimits && rateLimits.quota_usage >= 25) {
         alert("❌ Instagram daily limit reached (25 posts)");
         return;
+      }
+  
+      // Check YouTube connection
+      if (postToYouTube && !youTubeConnected) {
+        alert("❌ YouTube not connected. Please connect YouTube first.");
+        return;
+      }
+  
+      // Validate YouTube requirements
+      if (postToYouTube && cont.type !== "video") {
+        alert("⚠️ YouTube only accepts video uploads. This post will skip YouTube.");
+        setPostToYouTube(false);
       }
   
       setLoading(true);
@@ -751,9 +905,10 @@ if (postToLinkedIn && !linkedInConnected) {
           postToIG,
           postToTwitter: cont.type === "carousel" ? false : postToTwitter,
           postToLinkedIn,
+          postToYouTube: (cont.type === "video" || cont.videoUrl) ? postToYouTube : false,
         };
   
-        // ✅ FIXED: Only add pageId if posting to FB or IG
+        // Only add pageId if posting to FB or IG
         if (postToFB || postToIG) {
           payload.pageId = selectedPage;
         }
@@ -772,9 +927,17 @@ if (postToLinkedIn && !linkedInConnected) {
           if (postToIG && results.ig?.id) platforms.push("Instagram");
           if (postToTwitter && results.twitter?.id) platforms.push("Twitter");
           if (postToLinkedIn && results.linkedin?.id) platforms.push("LinkedIn");
+          if (postToYouTube && results.youtube?.videoId) platforms.push("YouTube"); // ✅ Fixed
+          
           if (platforms.length > 0) {
-            alert(`✅ Posted successfully to: ${platforms.join(", ")}!`);
+            // ✅ Show YouTube success modal if posted to YouTube
+            if (postToYouTube && results.youtube?.videoId) {
+              showYouTubeSuccessModal(results.youtube);
+            } else {
+              alert(`✅ Posted successfully to: ${platforms.join(", ")}!`);
+            }
             
+            // ✅ IMPORTANT: Remove the posted content from UI
             setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
             
             if (postToIG) {
@@ -785,6 +948,8 @@ if (postToLinkedIn && !linkedInConnected) {
             if (postToFB && results.fb?.error) errors.push(`FB: ${results.fb.error.message}`);
             if (postToIG && results.ig?.error) errors.push(`IG: ${results.ig.error.message}`);
             if (postToTwitter && results.twitter?.error) errors.push(`Twitter: ${results.twitter.error}`);
+            if (postToLinkedIn && results.linkedin?.error) errors.push(`LinkedIn: ${results.linkedin.error}`);
+            if (postToYouTube && results.youtube?.error) errors.push(`YouTube: ${results.youtube.error}`);
             
             alert("❌ Failed to post:\n" + errors.join("\n"));
           }
@@ -991,9 +1156,20 @@ const saveDraft = async (cont) => {
 
 
 
+const checkYouTubeConnection = async () => {
+  try {
+    const response = await api.get('/user/youtube/status');
+    if (response.data.connected) {
+      setYouTubeConnected(true);
+      setYouTubeChannelName(response.data.channelTitle || '');
+    }
+  } catch (error) {
+    console.error('Error checking YouTube status:', error);
+  }
+};
 
 
-  return (
+  return (<>
     <div className="create-post-wrapper">
       {/* Left Panel */}
 
@@ -1266,9 +1442,81 @@ const saveDraft = async (cont) => {
     </span>
   </div>
 )}
+                  
+                  {/* ✅ YOUTUBE CHECKBOX */}
+<label 
+  className={`platform-option ${postToYouTube ? 'active' : ''} ${!youTubeConnected ? 'disabled' : ''}`}
+>
+  <input
+    type="checkbox"
+    checked={postToYouTube}
+    disabled={!youTubeConnected}
+    onChange={(e) => {
+      if (!youTubeConnected) {
+        alert('YouTube not connected. Go to Dashboard → Connect YouTube.');
+        return;
+      }
+      
+      // ✅ YouTube only supports video posts
+      if (contentType !== "media" || (singleFile && singleFile.type !== "video")) {
+        alert('⚠️ YouTube only accepts video uploads. Please upload a video file.');
+        setPostToYouTube(false);
+        return;
+      }
+      
+      setPostToYouTube(e.target.checked);
+    }}
+  />
+  <span className="icon">🎥</span>
+  <span>Post to YouTube</span>
+  {youTubeConnected && youTubeChannelName && (
+    <small style={{ color: '#FF0000' }}>{youTubeChannelName}</small>
+  )}
+  {!youTubeConnected && (
+    <small style={{ color: '#dc3545' }}>Not connected</small>
+  )}
+</label>
+
+{/* Warning if YouTube not connected */}
+{postToYouTube && !youTubeConnected && (
+  <div className="warning-box" style={{ 
+    backgroundColor: '#fff3cd', 
+    border: '1px solid #ffc107', 
+    padding: '10px', 
+    borderRadius: '5px', 
+    marginTop: '10px' 
+  }}>
+    <span style={{ color: '#856404' }}>
+      ⚠️ YouTube is not connected. 
+      <a href="/home/connect" style={{ color: '#FF0000' }}> Connect YouTube</a>
+    </span>
+  </div>
+)}
+
+{/* Info about YouTube video-only requirement */}
+{postToYouTube && youTubeConnected && (
+  <div className="info-box" style={{ 
+    backgroundColor: '#e7f3ff', 
+    border: '1px solid #2196F3', 
+    padding: '10px', 
+    borderRadius: '5px', 
+    marginTop: '10px' 
+  }}>
+    <span style={{ color: '#014361' }}>
+      ℹ️ YouTube only accepts video files. Images and carousels will be skipped.
+    </span>
+  </div>
+)}
 
 
+      
 
+          
+
+      
+
+{/* ================================================================================================================== */}
+{/* ================================================================================================================== */}
 
   
             {/* ✅ SCHEDULING SECTION */}
@@ -1879,7 +2127,7 @@ const saveDraft = async (cont) => {
 )}
 
     </div>
-  );
+    </> );
   
 }
 

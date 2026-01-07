@@ -1,4 +1,3 @@
-// LogMedia.jsx - UPDATED WITH EXTERNAL CSS
 import React, { useEffect, useState } from "react";
 import api from "./api";
 import './dashboardmedia.css';
@@ -21,6 +20,12 @@ function LogMedia() {
   const [linkedInName, setLinkedInName] = useState("");
   const [linkedInLoading, setLinkedInLoading] = useState(false);
 
+  // ✅ YouTube states - ADD THESE
+  const [youtubeConnected, setYoutubeConnected] = useState(false);
+  const [youtubeChannelName, setYoutubeChannelName] = useState("");
+  const [youtubeChannelImage, setYoutubeChannelImage] = useState("");
+  const [youtubeLoading, setYoutubeLoading] = useState(false);
+
   useEffect(() => {
     const seen = localStorage.getItem("ms_tutorial_seen");
     if (seen === "true") {
@@ -29,10 +34,13 @@ function LogMedia() {
       setShowTutorial(true);
     }
 
-    loadUserProfile();
-    loadConnectedPages();
+    // ✅ Check connection status from server first
+    checkFacebookConnection();
+    
+    // Then check Twitter, LinkedIn, and YouTube
     checkTwitterConnection();
     checkLinkedInConnection();
+    checkYouTubeConnection(); // ✅ ADD THIS
 
     window.addEventListener('message', handleOAuthMessage);
 
@@ -101,12 +109,13 @@ function LogMedia() {
         
         // Update user state with REAL _id
         const user = {
-          _id: realUserId,  // ✅ Use real MongoDB _id from JWT token
+          _id: realUserId,
           username: profile.username,
           email: profile.email,
           facebookConnected: profile.facebook?.connected || false,
           twitterConnected: profile.twitter?.connected || false,
           linkedInConnected: profile.linkedin?.connected || false,
+          youtubeConnected: profile.youtube?.connected || false, // ✅ ADD THIS
           pages: profile.facebook?.pages || []
         };
         
@@ -115,6 +124,7 @@ function LogMedia() {
         
         console.log('✅ User profile loaded with real _id:', user._id);
         console.log('📊 Facebook connected:', user.facebookConnected);
+        console.log('📺 YouTube connected:', user.youtubeConnected); // ✅ ADD THIS
         
         return user;
       }
@@ -129,7 +139,7 @@ function LogMedia() {
           const realUserId = tokenPayload.userId;
           
           const cachedUser = JSON.parse(localStorage.getItem("ms_user") || "{}");
-          cachedUser._id = realUserId; // ✅ Fix _id if it's wrong
+          cachedUser._id = realUserId;
           
           setUserProfile(cachedUser);
           localStorage.setItem("ms_user", JSON.stringify(cachedUser));
@@ -179,6 +189,21 @@ function LogMedia() {
     }
   };
 
+  // ✅ ADD YOUTUBE CONNECTION CHECK
+  const checkYouTubeConnection = async () => {
+    try {
+      const response = await api.get('/user/youtube/status');
+      
+      if (response.data.connected) {
+        setYoutubeConnected(true);
+        setYoutubeChannelName(response.data.channelName || '');
+        setYoutubeChannelImage(response.data.channelImage || '');
+        console.log('✅ YouTube connected:', response.data.channelName);
+      }
+    } catch (error) {
+      console.error('Error checking YouTube status:', error);
+    }
+  };
   const handleTwitterConnect = async () => {
     setTwitterLoading(true);
     try {
@@ -223,6 +248,28 @@ function LogMedia() {
     }
   };
 
+  // ✅ ADD YOUTUBE CONNECT HANDLER
+
+  const handleYouTubeConnect = async () => {
+    setYoutubeLoading(true);
+    try {
+      console.log('🔗 Connecting to YouTube...');
+      
+      const response = await api.get('/user/youtube/auth');
+  
+      if (response.data.authUrl) {
+        console.log('✅ Got auth URL:', response.data.authUrl);
+        window.location.href = response.data.authUrl;
+      } else {
+        alert('Failed to get YouTube authorization URL');
+        setYoutubeLoading(false);
+      }
+    } catch (error) {
+      console.error('❌ YouTube connect error:', error);
+      alert('Error connecting YouTube: ' + (error.response?.data?.error || error.message));
+      setYoutubeLoading(false);
+    }
+  };
   const handleTwitterDisconnect = async () => {
     if (!confirm('Are you sure you want to disconnect Twitter?')) return;
 
@@ -277,6 +324,34 @@ function LogMedia() {
     }
   };
 
+  // ✅ ADD YOUTUBE DISCONNECT HANDLER
+  const handleYouTubeDisconnect = async () => {
+    if (!confirm('Are you sure you want to disconnect YouTube?')) return;
+  
+    setYoutubeLoading(true);
+    try {
+      const response = await api.post('/user/youtube/disconnectYT');
+  
+      if (response.data.success) {
+        setYoutubeConnected(false);
+        setYoutubeChannelName('');
+        setYoutubeChannelImage('');
+        
+        const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
+        const updatedUser = { ...user, youtubeConnected: false };
+        localStorage.setItem("ms_user", JSON.stringify(updatedUser));
+        
+        alert('✅ YouTube disconnected successfully');
+      } else {
+        alert('Failed to disconnect YouTube');
+      }
+    } catch (error) {
+      console.error('YouTube disconnect error:', error);
+      alert('Error disconnecting YouTube: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setYoutubeLoading(false);
+    }
+  };
   const handleFacebookDisconnect = async () => {
     if (!confirm('⚠️ This will disconnect Facebook and all Instagram accounts. Continue?')) return;
 
@@ -348,109 +423,72 @@ function LogMedia() {
         }
       },
       {
-        scope: "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,email,pages_read_user_content,business_management",
+        scope: "public_profile,email,pages_show_list,pages_read_engagement,pages_manage_posts,business_management,publish_video,instagram_basic,instagram_content_publish,",
+
       }
     );
   };
 
-
-const checkFacebookConnection = async () => {
-  try {
-    console.log('📡 Checking Facebook connection status from server...');
-    
-    const response = await api.get('/user/profile');
-    
-    if (response.data.success) {
-      const profile = response.data.profile;
+  const checkFacebookConnection = async () => {
+    try {
+      console.log('📡 Checking Facebook connection status from server...');
       
-      console.log('📊 Server response:', profile);
+      const response = await api.get('/user/profile');
       
-      // ✅ Get real _id from JWT token
-      const token = localStorage.getItem("ms_token");
-      const tokenPayload = JSON.parse(atob(token.split('.')[1]));
-      const realUserId = tokenPayload.userId;
-      
-      // Update user profile with server data
-      const updatedUser = {
-        _id: realUserId,  // ✅ Always use real _id from token
-        username: profile.username,
-        email: profile.email,
-        facebookConnected: profile.facebook?.connected || false,
-        twitterConnected: profile.twitter?.connected || false,
-        linkedInConnected: profile.linkedin?.connected || false
-      };
-      
-      // Update state
-      setUserProfile(updatedUser);
-      
-      // Update localStorage with fresh data
-      localStorage.setItem("ms_user", JSON.stringify(updatedUser));
-      
-      // Update connection states
-      setTwitterConnected(profile.twitter?.connected || false);
-      setTwitterUsername(profile.twitter?.username || '');
-      
-      setLinkedInConnected(profile.linkedin?.connected || false);
-      setLinkedInName(profile.linkedin?.name || '');
-      
-      console.log('✅ User _id:', updatedUser._id);
-      console.log('✅ Facebook connected:', updatedUser.facebookConnected);
-      console.log('✅ Twitter connected:', updatedUser.twitterConnected);
-      console.log('✅ LinkedIn connected:', updatedUser.linkedInConnected);
-      
-      // Load pages if Facebook is connected
-      if (profile.facebook?.connected) {
-        await loadConnectedPages();
+      if (response.data.success) {
+        const profile = response.data.profile;
+        
+        console.log('📊 Server response:', profile);
+        
+        // ✅ Get real _id from JWT token
+        const token = localStorage.getItem("ms_token");
+        const tokenPayload = JSON.parse(atob(token.split('.')[1]));
+        const realUserId = tokenPayload.userId;
+        
+        // Update user profile with server data
+        const updatedUser = {
+          _id: realUserId,
+          username: profile.username,
+          email: profile.email,
+          facebookConnected: profile.facebook?.connected || false,
+          twitterConnected: profile.twitter?.connected || false,
+          linkedInConnected: profile.linkedin?.connected || false,
+          youtubeConnected: profile.youtube?.connected || false // ✅ ADD THIS
+        };
+        
+        // Update state
+        setUserProfile(updatedUser);
+        
+        // Update localStorage with fresh data
+        localStorage.setItem("ms_user", JSON.stringify(updatedUser));
+        
+        // Update connection states
+        setTwitterConnected(profile.twitter?.connected || false);
+        setTwitterUsername(profile.twitter?.username || '');
+        
+        setLinkedInConnected(profile.linkedin?.connected || false);
+        setLinkedInName(profile.linkedin?.name || '');
+        
+        // ✅ ADD YOUTUBE STATE UPDATE
+        setYoutubeConnected(profile.youtube?.connected || false);
+        setYoutubeChannelName(profile.youtube?.channelName || '');
+        setYoutubeChannelImage(profile.youtube?.channelImage || '');
+        
+        console.log('✅ User _id:', updatedUser._id);
+        console.log('✅ Facebook connected:', updatedUser.facebookConnected);
+        console.log('✅ Twitter connected:', updatedUser.twitterConnected);
+        console.log('✅ LinkedIn connected:', updatedUser.linkedInConnected);
+        console.log('✅ YouTube connected:', updatedUser.youtubeConnected); // ✅ ADD THIS
+        
+        // Load pages if Facebook is connected
+        if (profile.facebook?.connected) {
+          await loadConnectedPages();
+        }
       }
+    } catch (error) {
+      console.error('❌ Error checking Facebook connection:', error);
     }
-  } catch (error) {
-    console.error('❌ Error checking Facebook connection:', error);
-  }
-};
-
-
-// Update useEffect to call checkFacebookConnection
-useEffect(() => {
-  const seen = localStorage.getItem("ms_tutorial_seen");
-  if (seen === "true") {
-    setHasSeenTutorial(true);
-  } else {
-    setShowTutorial(true);
-  }
-
-  // ✅ Check connection status from server first
-  checkFacebookConnection();
-  
-  // Then check Twitter and LinkedIn
-  checkTwitterConnection();
-  checkLinkedInConnection();
-
-  window.addEventListener('message', handleOAuthMessage);
-
-  // Load Facebook SDK
-  (function (d, s, id) {
-    let js, fjs = d.getElementsByTagName(s)[0];
-    if (d.getElementById(id)) return;
-    js = d.createElement(s);
-    js.id = id;
-    js.src = "https://connect.facebook.net/en_US/sdk.js";
-    fjs.parentNode.insertBefore(js, fjs);
-  })(document, "script", "facebook-jssdk");
-
-  window.fbAsyncInit = function () {
-    FB.init({
-      appId: FB_APP_ID,
-      cookie: true,
-      xfbml: true,
-      version: "v24.0",
-    });
   };
-
-  return () => {
-    window.removeEventListener('message', handleOAuthMessage);
-  };
-}, []);
-
 
   return (
     <div className="logmedia-container">
@@ -492,6 +530,9 @@ useEffect(() => {
               {twitterConnected ? `✅ Twitter Connected (@${twitterUsername})` : "❌ Twitter Not Connected"}
               <br />
               {linkedInConnected ? `✅ LinkedIn Connected (${linkedInName})` : "❌ LinkedIn Not Connected"}
+              <br />
+              {/* ✅ ADD YOUTUBE STATUS */}
+              {youtubeConnected ? `✅ YouTube Connected (${youtubeChannelName})` : "❌ YouTube Not Connected"}
             </p>
           </div>
 
@@ -517,7 +558,7 @@ useEffect(() => {
       ) : (
         <div style={{ textAlign: "center", marginBottom: 30 }}>
           <h2>Connect Your Social Media</h2>
-          <p style={{ color: "#666" }}>Connect Facebook, Instagram, Twitter & LinkedIn</p>
+          <p style={{ color: "#666" }}>Connect Facebook, Instagram, Twitter, LinkedIn & YouTube</p>
         </div>
       )}
 
@@ -527,7 +568,7 @@ useEffect(() => {
           onClick={userProfile?.facebookConnected ? handleFacebookDisconnect : handleFBLogin}
           className={`platform-btn btn-facebook ${userProfile?.facebookConnected ? 'disconnect' : ''}`}
         >
-          {userProfile?.facebookConnected ? " Disconnect Facebook/IG" : "📘 Connect Facebook"}
+          {userProfile?.facebookConnected ? "📘 Disconnect Facebook/IG" : "📘 Connect Facebook"}
         </button>
 
         <button
@@ -535,7 +576,7 @@ useEffect(() => {
           disabled={twitterLoading}
           className={`platform-btn btn-twitter ${twitterConnected ? 'connected' : ''}`}
         >
-          {twitterLoading ? "⏳ Loading..." : twitterConnected ? "Disconnect Twitter" : "Connect Twitter"}
+          {twitterLoading ? "⏳ Loading..." : twitterConnected ? "🐦 Disconnect Twitter" : "🐦 Connect Twitter"}
         </button>
 
         <button
@@ -544,6 +585,15 @@ useEffect(() => {
           className={`platform-btn btn-linkedin ${linkedInConnected ? 'connected' : ''}`}
         >
           {linkedInLoading ? "⏳ Loading..." : linkedInConnected ? "🔗 Disconnect LinkedIn" : "🔗 Connect LinkedIn"}
+        </button>
+
+        {/* ✅ ADD YOUTUBE BUTTON */}
+        <button
+          onClick={youtubeConnected ? handleYouTubeDisconnect : handleYouTubeConnect}
+          disabled={youtubeLoading}
+          className={`platform-btn btn-youtube ${youtubeConnected ? 'connected' : ''}`}
+        >
+          {youtubeLoading ? "⏳ Loading..." : youtubeConnected ? "📺 Disconnect YouTube" : "📺 Connect YouTube"}
         </button>
 
         <button onClick={openTutorial} className="platform-btn btn-tutorial">
@@ -570,6 +620,30 @@ useEffect(() => {
           </svg>
           <strong>{linkedInName}</strong>
           <p>✅ Ready to post to LinkedIn</p>
+        </div>
+      )}
+
+      {/* ✅ ADD YOUTUBE INFO BOX */}
+      {youtubeConnected && (
+        <div className="platform-info-box youtube">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="#FF0000">
+            <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+          </svg>
+          {youtubeChannelImage && (
+            <img 
+              src={youtubeChannelImage} 
+              alt={youtubeChannelName}
+              style={{ 
+                width: '40px', 
+                height: '40px', 
+                borderRadius: '50%', 
+                marginRight: '10px',
+                border: '2px solid #FF0000'
+              }}
+            />
+          )}
+          <strong>{youtubeChannelName}</strong>
+          <p>✅ Ready to upload videos to YouTube</p>
         </div>
       )}
     </div>

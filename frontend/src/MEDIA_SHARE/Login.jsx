@@ -119,7 +119,8 @@ function Login() {
         }
       },
       {
-        scope: "pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,email,pages_read_user_content,business_management,",
+        scope: "public_profile,email,pages_show_list,pages_read_engagement,pages_manage_posts,business_management,publish_video,instagram_basic,instagram_content_publish,",
+
       }
     );
   };

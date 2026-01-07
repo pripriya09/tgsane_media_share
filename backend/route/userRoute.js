@@ -44,24 +44,29 @@ import {
 } from "../controller/linkedinController.js";
 
 
+// ✅ Youtube controller
+import {
+  initiateYouTubeAuth,
+  youtubeCallback,
+  disconnectYouTube,
+  getYouTubeStatus,
+  uploadToYouTube
+} from "../controller/youtubeController.js";
+
+
 // ✅ Import upload from middleware (not app.js)
 import { upload } from "../middleware/upload.js";
 
 const router = express.Router();
 
 
-// const router = express.Router();
-// const upload = multer({ 
-//   dest: "uploads/",
-//   limits: { fileSize: 10 * 1024 * 1024 }
-// });
 router.get('/profile', ensureAuth(), getUserProfile);
 // Facebook routes
 router.post("/connect/facebook", ensureAuth(), connectFacebook);
 router.get("/pages", ensureAuth(), getConnectedPages);
 router.post("/post", ensureAuth(), postToChannels);
 router.get("/post-stats", ensureAuth(), getPostStats);
-
+router.post("/facebook/disconnectFB", ensureAuth(), disconnectFacebook);
 
 // Get all posts
 router.get("/posts", ensureAuth(), async (req, res) => {
@@ -172,7 +177,23 @@ router.put("/schedule-post/:postId", ensureAuth(), updateScheduledPost);
 router.delete("/schedule-post/:postId", ensureAuth(), deleteScheduledPost);
 
 
-router.post("/facebook/disconnectFB", ensureAuth(), disconnectFacebook);
+
+
+
+// ✅ YouTube routes
+
+router.get("/youtube/auth", ensureAuth(), initiateYouTubeAuth);
+router.post("/youtube/callback", youtubeCallback);
+router.get("/youtube/status", ensureAuth(), getYouTubeStatus);
+router.post("/youtube/disconnectYT", ensureAuth(), disconnectYouTube);
+router.post("/youtube/upload", ensureAuth(), upload.single('video'), uploadToYouTube);
+
+
+
+// 4. Disconnect YouTube
+
+
+// 5. Upload video to YouTube
 
 
 export default router;

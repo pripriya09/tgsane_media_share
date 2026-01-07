@@ -21,6 +21,20 @@ const UserSchema = new mongoose.Schema({
   twitterAccessSecret: String, // OAuth 1.0a access secret
   twitterOauthTokenSecret: String, // Temporary during OAuth flow
   
+
+
+ // YOUTUBE CONNECTION ✅ (FIXED)
+  // ========================================
+  youtubeId: { type: String, unique: true, sparse: true }, // YouTube channel ID
+  youtubeConnected: { type: Boolean, default: false },
+  youtubeAccessToken: String, // OAuth 2.0 access token
+  youtubeRefreshToken: String, // OAuth 2.0 refresh token
+  youtubeTokenExpiry: Date, // When token expires
+  youtubeChannelId: String, // YouTube channel ID (same as youtubeId but kept for consistency)
+  youtubeChannelName: String, // Channel title
+  youtubeChannelImage: String, // Channel thumbnail
+
+  
   // Role & Timestamps
   role: { type: String, enum: ["superAdmin", "admin", "agent", "user"], default: "user" },
   createdAt: { type: Date, default: Date.now },

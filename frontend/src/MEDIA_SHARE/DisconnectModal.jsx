@@ -1,4 +1,5 @@
-// DisconnectModal.jsx - SELECT ALL FIRST
+// DisconnectModal.jsx - ADD YOUTUBE SUPPORT
+
 import React, { useState } from 'react';
 import api from './api';
 import './dashboardmedia.css';
@@ -8,7 +9,8 @@ function DisconnectModal({ isOpen, onClose, onLogout }) {
   const [selectedPlatforms, setSelectedPlatforms] = useState({
     facebook: false,
     twitter: false,
-    linkedin: false
+    linkedin: false,
+    youtube: false // ✅ ADD YOUTUBE
   });
 
   if (!isOpen) return null;
@@ -23,20 +25,20 @@ function DisconnectModal({ isOpen, onClose, onLogout }) {
   // Select All / Deselect All
   const handleSelectAll = () => {
     const allSelected = Object.values(selectedPlatforms).every(val => val === true);
-    
     setSelectedPlatforms({
       facebook: !allSelected,
       twitter: !allSelected,
-      linkedin: !allSelected
+      linkedin: !allSelected,
+      youtube: !allSelected // ✅ ADD YOUTUBE
     });
   };
 
   // Check if any platform is selected
   const hasSelectedPlatforms = Object.values(selectedPlatforms).some(val => val === true);
-  
+
   // Check if all platforms are selected
   const allPlatformsSelected = Object.values(selectedPlatforms).every(val => val === true);
-  
+
   // Check if some (but not all) are selected
   const somePlatformsSelected = hasSelectedPlatforms && !allPlatformsSelected;
 
@@ -55,7 +57,8 @@ function DisconnectModal({ isOpen, onClose, onLogout }) {
     const results = {
       facebook: null,
       twitter: null,
-      linkedin: null
+      linkedin: null,
+      youtube: null // ✅ ADD YOUTUBE
     };
 
     try {
@@ -94,6 +97,18 @@ function DisconnectModal({ isOpen, onClose, onLogout }) {
         );
       }
 
+      // ✅ ADD YOUTUBE DISCONNECT
+      if (selectedPlatforms.youtube) {
+        disconnectPromises.push(
+          api.post('/user/youtube/disconnect')
+            .then(() => { results.youtube = 'success'; })
+            .catch((err) => {
+              results.youtube = 'failed';
+              console.error('YouTube disconnect error:', err);
+            })
+        );
+      }
+
       await Promise.all(disconnectPromises);
 
       const successCount = Object.values(results).filter(r => r === 'success').length;
@@ -104,7 +119,6 @@ function DisconnectModal({ isOpen, onClose, onLogout }) {
       } else if (successCount > 0) {
         alert(`✅ Successfully disconnected ${successCount} platform(s)!`);
       }
-
     } catch (error) {
       console.error('Disconnect error:', error);
     } finally {
@@ -118,115 +132,101 @@ function DisconnectModal({ isOpen, onClose, onLogout }) {
   };
 
   return (
-    <div className="disconnect-modal-overlay" onClick={onClose}>
-      <div className="disconnect-modal-content" onClick={(e) => e.stopPropagation()}>
-        <div className="disconnect-modal-header">
-          <h2>🚪 Logout Options</h2>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>🚪 Logout</h2>
           <button className="close-btn" onClick={onClose}>✕</button>
         </div>
 
-        <div className="disconnect-modal-body">
-          <p className="disconnect-question">
+        <div className="modal-body">
+          <p className="modal-description">
             Do you want to disconnect any platforms before logging out?
           </p>
 
           {/* ✅ SELECT ALL CHECKBOX - FIRST */}
-          <div className="select-all-checkbox-wrapper">
-            <label className="platform-checkbox select-all-checkbox">
+          <div className="select-all-container">
+            <label className="platform-option select-all">
               <input
                 type="checkbox"
                 checked={allPlatformsSelected}
                 ref={input => {
-                  if (input) {
-                    input.indeterminate = somePlatformsSelected;
-                  }
+                  if (input) input.indeterminate = somePlatformsSelected;
                 }}
                 onChange={handleSelectAll}
-                disabled={disconnecting}
               />
-              <span className="checkbox-label">
-            
-                <span className="select-all-text">
-                  {allPlatformsSelected ? 'Cancel' : 'Select Items'}
-                </span>
+              <span className="platform-name">
+                {allPlatformsSelected ? '☑️ Deselect All' : '☐ Select All'}
               </span>
             </label>
           </div>
 
-          {/* Platform Checkboxes - BELOW */}
-          <div className="platform-checkboxes">
-            {/* Facebook */}
-            <label className="platform-checkbox">
+          <div className="divider"></div>
+
+          {/* PLATFORM CHECKBOXES */}
+          <div className="platforms-list">
+            <label className="platform-option">
               <input
                 type="checkbox"
                 checked={selectedPlatforms.facebook}
                 onChange={() => handleToggle('facebook')}
-                disabled={disconnecting}
               />
-              <span className="checkbox-label">
-               
-                <span>Facebook & Instagram</span>
-              </span>
+              <span className="platform-icon">📘</span>
+              <span className="platform-name">Facebook</span>
             </label>
 
-            {/* Twitter */}
-            <label className="platform-checkbox">
+            <label className="platform-option">
               <input
                 type="checkbox"
                 checked={selectedPlatforms.twitter}
                 onChange={() => handleToggle('twitter')}
-                disabled={disconnecting}
               />
-              <span className="checkbox-label">
-               
-                <span>Twitter / X</span>
-              </span>
+              <span className="platform-icon">🐦</span>
+              <span className="platform-name">Twitter</span>
             </label>
 
-            {/* LinkedIn */}
-            <label className="platform-checkbox">
+            <label className="platform-option">
               <input
                 type="checkbox"
                 checked={selectedPlatforms.linkedin}
                 onChange={() => handleToggle('linkedin')}
-                disabled={disconnecting}
               />
-              <span className="checkbox-label">
-            
-                <span>LinkedIn</span>
-              </span>
+              <span className="platform-icon">💼</span>
+              <span className="platform-name">LinkedIn</span>
+            </label>
+
+            {/* ✅ ADD YOUTUBE */}
+            <label className="platform-option">
+              <input
+                type="checkbox"
+                checked={selectedPlatforms.youtube}
+                onChange={() => handleToggle('youtube')}
+              />
+              <span className="platform-icon">📺</span>
+              <span className="platform-name">YouTube</span>
             </label>
           </div>
 
-          <div className="disconnect-actions">
-            {/* Just Logout Button */}
-            <button 
-              className="logout-only-btn"
-              onClick={handleLogoutOnly}
-              disabled={disconnecting}
-            >
-              🚪 Just Logout
-            </button>
-
-            {/* Disconnect & Logout Button */}
-            <button 
-              className={`disconnect-logout-btn ${hasSelectedPlatforms ? 'has-selection' : ''}`}
-              onClick={handleLogoutWithDisconnect}
-              disabled={disconnecting}
-            >
-              {disconnecting ? (
-                '⏳ Disconnecting...'
-              ) : hasSelectedPlatforms ? (
-                `🔌 Disconnect ${Object.values(selectedPlatforms).filter(v => v).length} & Logout`
-              ) : (
-                '🚪 Logout'
-              )}
-            </button>
+          <div className="modal-tip">
+            💡 <strong>Tip:</strong> You can also disconnect platforms individually from the Dashboard without logging out.
           </div>
+        </div>
 
-          <p className="disconnect-tip">
-            <strong>💡 Tip:</strong> You can also disconnect platforms individually from the Dashboard without logging out.
-          </p>
+        <div className="modal-footer">
+          <button
+            className="btn btn-secondary"
+            onClick={handleLogoutOnly}
+            disabled={disconnecting}
+          >
+            Just Logout
+          </button>
+          <button
+            className="btn btn-danger"
+            onClick={handleLogoutWithDisconnect}
+            disabled={disconnecting}
+          >
+            {disconnecting ? 'Disconnecting...' : hasSelectedPlatforms ? 'Disconnect & Logout' : 'Logout'}
+          </button>
         </div>
       </div>
     </div>

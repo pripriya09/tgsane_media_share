@@ -10,8 +10,21 @@ function Dashboard() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    
     if (params.get('linkedin_connected') === 'true') {
       alert('✅ LinkedIn connected successfully!');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    
+    // ✅ ADD YOUTUBE CONNECTION CHECK
+    if (params.get('youtube') === 'connected') {
+      alert('✅ YouTube connected successfully!');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    
+    // ✅ ADD YOUTUBE ERROR CHECK
+    if (params.get('error') === 'youtube_auth_failed') {
+      alert('❌ YouTube authentication failed. Please try again.');
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);

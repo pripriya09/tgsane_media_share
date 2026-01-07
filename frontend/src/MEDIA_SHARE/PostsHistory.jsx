@@ -15,7 +15,8 @@ function PostsHistory() {
   const [postToFB, setPostToFB] = useState(true);
   const [postToIG, setPostToIG] = useState(true);
   const [postToTwitter, setPostToTwitter] = useState(false);
-  const [postToLinkedIn, setPostToLinkedIn] = useState(false); // ✅ ADD
+  const [postToLinkedIn, setPostToLinkedIn] = useState(false);
+  const [postToYouTube, setPostToYouTube] = useState(false); // ✅ ADD
   const [reposting, setReposting] = useState(false);
   const [selectedPage, setSelectedPage] = useState(""); 
   const [postToStory, setPostToStory] = useState(false);
@@ -23,18 +24,22 @@ function PostsHistory() {
   const [twitterConnected, setTwitterConnected] = useState(false);
   const [twitterUsername, setTwitterUsername] = useState("");
   
-  // ✅ ADD: LinkedIn state
   const [linkedInConnected, setLinkedInConnected] = useState(false);
   const [linkedInName, setLinkedInName] = useState("");
+
+  // ✅ ADD: YouTube state
+  const [youtubeConnected, setYoutubeConnected] = useState(false);
+  const [youtubeChannelName, setYoutubeChannelName] = useState("");
 
   useEffect(() => {
     loadPosts();
     loadPages();
     checkTwitterConnection();
-    checkLinkedInConnection(); // ✅ ADD
+    checkLinkedInConnection();
+    checkYouTubeConnection(); // ✅ ADD
   }, []);
 
-  // ✅ Check Twitter connection
+  // Check Twitter connection
   async function checkTwitterConnection() {
     try {
       const response = await api.get('/user/twitter/status');
@@ -47,7 +52,7 @@ function PostsHistory() {
     }
   }
 
-  // ✅ ADD: Check LinkedIn connection
+  // Check LinkedIn connection
   async function checkLinkedInConnection() {
     try {
       const response = await api.get('/user/linkedin/status');
@@ -57,6 +62,19 @@ function PostsHistory() {
       }
     } catch (error) {
       console.error('Error checking LinkedIn status:', error);
+    }
+  }
+
+  // ✅ ADD: Check YouTube connection
+  async function checkYouTubeConnection() {
+    try {
+      const response = await api.get('/user/youtube/status');
+      if (response.data.connected) {
+        setYoutubeConnected(true);
+        setYoutubeChannelName(response.data.channelTitle || '');
+      }
+    } catch (error) {
+      console.error('Error checking YouTube status:', error);
     }
   }
 
@@ -108,7 +126,8 @@ function PostsHistory() {
     setPostToFB(!!post.fbPostId);
     setPostToIG(!!post.igMediaId && pageHasIG);
     setPostToTwitter(!!post.tweetId);
-    setPostToLinkedIn(!!post.linkedinPostId); // ✅ ADD
+    setPostToLinkedIn(!!post.linkedinPostId);
+    setPostToYouTube(!!post.youtubeVideoId); // ✅ ADD
     setPostToStory(false);
     setShowRepostModal(true);
   }
@@ -120,7 +139,8 @@ function PostsHistory() {
     setPostToFB(true);
     setPostToIG(true);
     setPostToTwitter(false);
-    setPostToLinkedIn(false); // ✅ ADD
+    setPostToLinkedIn(false);
+    setPostToYouTube(false); // ✅ ADD
     setPostToStory(false);
     setSelectedPage("");
     setReposting(false);
@@ -135,8 +155,8 @@ function PostsHistory() {
       return;
     }
 
-    // ✅ UPDATE: Include LinkedIn in validation
-    if (!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn) {
+    // ✅ UPDATE: Include YouTube
+    if (!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn && !postToYouTube) {
       alert("❌ Please select at least one platform");
       return;
     }
@@ -179,7 +199,8 @@ function PostsHistory() {
           postToFB,
           postToIG,
           postToTwitter: selectedPost.type === "carousel" ? false : postToTwitter,
-          postToLinkedIn: selectedPost.type === "carousel" ? false : postToLinkedIn // ✅ ADD
+          postToLinkedIn: selectedPost.type === "carousel" ? false : postToLinkedIn,
+          postToYouTube: (selectedPost.type === "video" || selectedPost.videoUrl) ? postToYouTube : false // ✅ ADD
         };
 
         // Add pageId only if posting to FB/IG
@@ -191,7 +212,7 @@ function PostsHistory() {
         if (selectedPost.type === "carousel") {
           payload.items = selectedPost.items;
           
-          if (postToTwitter || postToLinkedIn) {
+          if (postToTwitter || postToLinkedIn || postToYouTube) {
             alert("⚠️ Note: Carousel posts can only be posted to Facebook/Instagram.");
           }
         }
@@ -209,7 +230,8 @@ function PostsHistory() {
           if (postToFB && (results?.fb?.id || results?.fb?.post_id)) platforms.push("Facebook");
           if (postToIG && results?.ig?.id) platforms.push("Instagram");
           if (postToTwitter && results?.twitter?.id) platforms.push("Twitter");
-          if (postToLinkedIn && results?.linkedin?.id) platforms.push("LinkedIn"); // ✅ ADD
+          if (postToLinkedIn && results?.linkedin?.id) platforms.push("LinkedIn");
+          if (postToYouTube && results?.youtube?.videoId) platforms.push("YouTube"); // ✅ ADD
         }
 
         const postType = postToStory || selectedPost.type === 'story' ? 'Story' : 'Post';
@@ -238,21 +260,29 @@ function PostsHistory() {
     return new Date(date).toLocaleString();
   }
 
+  // ✅ UPDATED: Add YouTube URL support
   function getPostUrl(post) {
     if (post.type === "story") return null;
+    
+    // YouTube has priority for video posts
+    if (post.youtubeVideoId) {
+      return `https://www.youtube.com/watch?v=${post.youtubeVideoId}`;
+    }
+    
     if (post.fbPostId) return `https://www.facebook.com/${post.fbPostId}`;
     if (post.igMediaId) return `https://www.instagram.com/p/${post.igMediaId}/`;
     if (post.tweetId) return `https://twitter.com/i/web/status/${post.tweetId}`;
-    // LinkedIn posts don't have direct URLs
+    
     return null;
   }
 
-  // ✅ UPDATE: Add LinkedIn badge
+  // ✅ UPDATED: Add YouTube badge
   function renderPostedTo(post) {
     const hasFB = !!post.fbPostId;
     const hasIG = !!post.igMediaId;
     const hasTwitter = !!post.tweetId;
-    const hasLinkedIn = !!post.linkedinPostId; // ✅ ADD
+    const hasLinkedIn = !!post.linkedinPostId;
+    const hasYouTube = !!post.youtubeVideoId; // ✅ ADD
     const platforms = post.platform || [];
 
     if (post.type === "story") {
@@ -278,9 +308,13 @@ function PostsHistory() {
       badges.push(<span key="tw" className="platform-badge tw-badge">Twitter</span>);
     }
     
-    // ✅ ADD: LinkedIn badge
     if (hasLinkedIn || platforms.includes('linkedin')) {
       badges.push(<span key="li" className="platform-badge li-badge">LinkedIn</span>);
+    }
+    
+    // ✅ ADD: YouTube badge
+    if (hasYouTube || platforms.includes('youtube')) {
+      badges.push(<span key="yt" className="platform-badge yt-badge">YouTube</span>);
     }
 
     if (badges.length === 0) {
@@ -636,7 +670,7 @@ function PostsHistory() {
                     </label>
                   )}
 
-                  {/* ✅ ADD: LinkedIn Checkbox */}
+                  {/* LinkedIn Checkbox */}
                   {linkedInConnected && (
                     <label className={`platform-checkbox ${postToLinkedIn ? "checked" : ""}`}>
                       <input
@@ -652,8 +686,35 @@ function PostsHistory() {
                     </label>
                   )}
 
+                  {/* ✅ ADD: YouTube Checkbox */}
+                  {youtubeConnected && (selectedPost.type === "video" || selectedPost.videoUrl) && (
+                    <label className={`platform-checkbox ${postToYouTube ? "checked" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={postToYouTube}
+                        onChange={e => setPostToYouTube(e.target.checked)}
+                      />
+                      <span className="platform-icon">📺</span>
+                      <div className="platform-text">
+                        <div className="platform-name">YouTube</div>
+                        <div className="platform-hint">{youtubeChannelName}</div>
+                      </div>
+                    </label>
+                  )}
+
+                  {/* ✅ ADD: YouTube video-only warning */}
+                  {youtubeConnected && selectedPost.type !== "video" && !selectedPost.videoUrl && (
+                    <div className="platform-disabled">
+                      <span className="platform-icon disabled">📺</span>
+                      <div className="platform-text">
+                        <div className="platform-name disabled">YouTube</div>
+                        <div className="platform-hint">Videos only</div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Warning */}
-                  {!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn && (
+                  {!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn && !postToYouTube && (
                     <div className="platform-warning">
                       ⚠️ Please select at least one platform
                     </div>
@@ -674,8 +735,8 @@ function PostsHistory() {
                 </button>
                 <button
                   onClick={handleRepostSubmit}
-                  disabled={reposting || (!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn)}
-                  className={`btn-submit ${postToStory ? "story-submit" : ""} ${reposting || (!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn) ? "disabled" : ""}`}
+                  disabled={reposting || (!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn && !postToYouTube)}
+                  className={`btn-submit ${postToStory ? "story-submit" : ""} ${reposting || (!postToFB && !postToIG && !postToStory && !postToTwitter && !postToLinkedIn && !postToYouTube) ? "disabled" : ""}`}
                 >
                   {reposting ? (
                     <>

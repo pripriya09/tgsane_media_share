@@ -629,3 +629,93 @@
         font-size: 15px;
       }
     } 
+
+
+
+
+
+
+
+
+
+
+
+
+    /* YouTube Button------------------------------------------------------------------------------- */
+.btn-youtube {
+  background: linear-gradient(135deg, #FF0000 0%, #CC0000 100%);
+  color: white;
+  border: none;
+  transition: all 0.3s ease;
+}
+
+.btn-youtube:hover {
+  background: linear-gradient(135deg, #CC0000 0%, #AA0000 100%);
+  box-shadow: 0 4px 15px rgba(255, 0, 0, 0.3);
+  transform: translateY(-2px);
+}
+
+.btn-youtube.connected {
+  background: #42b72a;
+}
+
+.btn-youtube.connected:hover {
+  background: #d32f2f;
+}
+
+/* YouTube Info Box */
+.platform-info-box.youtube {
+  background: linear-gradient(135deg, #fff5f5 0%, #ffebee 100%);
+  border-left: 4px solid #FF0000;
+  padding: 20px;
+  border-radius: 12px;
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  box-shadow: 0 2px 10px rgba(255, 0, 0, 0.1);
+}
+
+.platform-info-box.youtube svg {
+  flex-shrink: 0;
+}
+
+.platform-info-box.youtube strong {
+  color: #FF0000;
+  font-size: 18px;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.platform-info-box.youtube p {
+  margin: 0;
+  color: #666;
+  font-size: 14px;
+}
+
+/* Platform Button Grid - Adjust if needed */
+.action-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  margin: 30px 0;
+}
+
+.platform-btn {
+  padding: 14px 24px;
+  font-size: 16px;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.platform-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

@@ -94,6 +94,9 @@ async function publishPost(post) {
         } else if (platform === "linkedin" && user.linkedin?.connected) {
           console.log("💼 Publishing to LinkedIn...");
           result = await publishToLinkedIn(user, post, formattedContent);
+        } else if (platform === "youtube" && user.youtubeConnected) {
+          console.log("📺 Publishing to YouTube...");
+          result = await publishToYouTube(user, post, formattedContent);
         } else {
           console.log(`⚠️ Platform ${platform} not connected`);
         }
@@ -634,5 +637,63 @@ async function saveToGallery(post, user) {
 
   } catch (error) {
     console.error("❌ Failed to save to gallery:", error);
+  }
+}
+
+
+
+
+
+// youtube service
+import { refreshYouTubeToken, uploadVideoToYouTube } from "./youtubeService.js";
+
+async function publishToYouTube(user, post, content) {
+  try {
+    console.log(`📺 Publishing to YouTube...`);
+
+    if (!user.youtubeConnected || !user.youtubeAccessToken) {
+      throw new Error("YouTube not connected");
+    }
+
+    // Check if token expired, refresh if needed
+    if (user.youtubeTokenExpiry && new Date() >= user.youtubeTokenExpiry) {
+      console.log(`🔄 Refreshing YouTube token...`);
+      const { accessToken, expiresIn } = await refreshYouTubeToken(user.youtubeRefreshToken);
+      user.youtubeAccessToken = accessToken;
+      user.youtubeTokenExpiry = new Date(Date.now() + expiresIn * 1000);
+      await user.save();
+      console.log(`✅ YouTube token refreshed`);
+    }
+
+    // YouTube requires video
+    if (!post.videoUrl) {
+      throw new Error("Video is required for YouTube");
+    }
+
+    // Upload video
+    const result = await uploadVideoToYouTube({
+      accessToken: user.youtubeAccessToken,
+      videoUrl: post.videoUrl,
+      title: post.youtubeTitle || post.title || "Untitled Video",
+      description: post.youtubeDescription || content,
+      tags: post.youtubeTags || post.hashtags || [],
+      privacy: post.youtubePrivacy || "public",
+      category: post.youtubeCategory || "22"
+    });
+
+    console.log(`✅ YouTube video published: ${result.videoId}`);
+    
+    return {
+      success: true,
+      postId: result.videoId,
+      url: result.videoUrl
+    };
+
+  } catch (error) {
+    console.error("❌ YouTube publish error:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to post to YouTube"
+    };
   }
 }

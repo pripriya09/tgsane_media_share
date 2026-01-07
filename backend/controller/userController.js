@@ -90,9 +90,19 @@ export const getUserProfile = async (req, res) => {
         email: user.linkedin?.email,
         picture: user.linkedin?.picture,
         userId: user.linkedin?.userId
+      },
+
+       // ✅ YouTube
+       youtube: {
+        connected: user.youtubeConnected || false,
+        channelName: user.youtubeChannelName || null,
+        channelId: user.youtubeChannelId || null
       }
+    
     };
 
+
+    
     console.log('✅ Returning profile with _id:', profile._id);
 
     return res.json({
@@ -385,6 +395,7 @@ export async function postToChannels(req, res) {
       postToIG = true,
       postToTwitter = false,
       postToLinkedIn = false,
+      postToYouTube = false,
     } = req.body;
 
    
@@ -809,6 +820,77 @@ if (postToLinkedIn && user.linkedin?.connected) {
   }
 }
 
+//============================POST TO YOUTUBE =====================
+
+if (postToYouTube && user.youtubeConnected && type === "video" && videoUrl) {
+  try {
+    console.log("🎥 Preparing YouTube upload...");
+    
+    // Check if YouTube token needs refresh
+    const now = new Date();
+    if (user.youtubeTokenExpiry && user.youtubeTokenExpiry < now) {
+      console.log('🔄 YouTube token expired, refreshing...');
+      
+      // Import refresh function
+      const { google } = await import('googleapis');
+      const oauth2Client = new google.auth.OAuth2(
+        process.env.YOUTUBE_CLIENT_ID,
+        process.env.YOUTUBE_CLIENT_SECRET,
+        'https://localhost:5174/auth/youtube/callback'
+      );
+      
+      oauth2Client.setCredentials({
+        refresh_token: user.youtubeRefreshToken
+      });
+      
+      const { credentials } = await oauth2Client.refreshAccessToken();
+      
+      // Update user's tokens
+      user.youtubeAccessToken = credentials.access_token;
+      user.youtubeTokenExpiry = new Date(credentials.expiry_date);
+      await user.save();
+      console.log('✅ YouTube token refreshed');
+    }
+    
+    // Import YouTube service
+    const { uploadVideoToYouTube } = await import('../utils/youtubeService.js');
+    
+    // Upload video to YouTube
+    const ytResult = await uploadVideoToYouTube({
+      accessToken: user.youtubeAccessToken,
+      videoUrl: videoUrl,
+      title: title || "New Video Upload",
+      description: title || "",
+      tags: [],
+      privacy: "public",
+      category: "22"
+    });
+    
+    if (ytResult.success) {
+      results.youtube = { 
+        videoId: ytResult.videoId,
+        title: title || "New Video Upload",
+        url: ytResult.videoUrl
+      };
+      console.log("✅ Posted to YouTube:", ytResult.videoId);
+    } else {
+      throw new Error("YouTube upload failed");
+    }
+    
+  } catch (ytErr) {
+    console.error("❌ YouTube upload error:", ytErr);
+    results.youtube = {
+      error: ytErr.message || "YouTube upload failed"
+    };
+  }
+} else if (postToYouTube && !user.youtubeConnected) {
+  console.warn("⚠️ YouTube not connected, skipping...");
+  results.youtube = { error: "YouTube not connected" };
+} else if (postToYouTube && type !== "video") {
+  console.warn("⚠️ YouTube only accepts videos, skipping...");
+  results.youtube = { error: "YouTube only supports video uploads" };
+}
+
 
     const Post = (await import("../models/Post.js")).default;
 
@@ -818,7 +900,7 @@ if (postToLinkedIn && user.linkedin?.connected) {
     if (postToIG && results.ig?.id) platforms.push("instagram");
     if (postToTwitter && results.twitter?.id) platforms.push("twitter");
     if (postToLinkedIn && results.linkedin?.id) platforms.push("linkedin"); // ✅
-
+    if (postToYouTube && results.youtube?.videoId) platforms.push("youtube");
     // If no successful posts, don't save to DB
     if (platforms.length === 0) {
       return res.status(500).json({
@@ -840,7 +922,12 @@ if (postToLinkedIn && user.linkedin?.connected) {
       fbPostId: results.fb?.id || results.fb?.post_id || null,
       igMediaId: results.ig?.id || null,
       tweetId: results.twitter?.id || null,
-      linkedinPostId: results.linkedin?.id || null, // ✅ NEW
+      linkedinPostId: results.linkedin?.id || null, // ✅ YouTube-specific fields
+     // ✅ YouTube-specific fields
+  youtubeVideoId: results.youtube?.videoId || null,
+  youtubeTitle: results.youtube?.title || title || null,
+  youtubeViewUrl: results.youtube?.url || null,
+      
       status: "posted",
       postedAt: new Date()
     };

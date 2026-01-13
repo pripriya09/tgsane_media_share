@@ -13,7 +13,14 @@ function CreatePost() {
   const [singleFile, setSingleFile] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isCarousel, setIsCarousel] = useState(false);
-  
+
+
+const [fbLoading, setFbLoading] = useState(false);    // ✅ NEW
+const [igLoading, setIgLoading] = useState(false);    // ✅ NEW
+const [twitterLoading, setTwitterLoading] = useState(false);
+const [linkedinLoading, setLinkedinLoading] = useState(false);
+const [youtubeLoading, setYoutubeLoading] = useState(false);
+
   // Text post states
   const [textContent, setTextContent] = useState("");
   const [fontSize, setFontSize] = useState(48);
@@ -715,260 +722,298 @@ function showYouTubeSuccessModal(youtubeData) {
 }
 
 
-  async function handlePost(cont) {
-    try {
-      setErrorMsg("");
-      const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
-      if (!user?._id) {
-        alert("Please login");
+async function handlePost(cont) {
+  try {
+    setErrorMsg("");
+    const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
+    if (!user?._id) {
+      alert("Please login");
+      return;
+    }
+
+    // Handle Story posting
+    if (cont.type === "story") {
+      if (!selectedPage) {
+        alert("❌ Please select a Facebook page");
         return;
       }
-  
-      // Handle Story posting
-      if (cont.type === "story") {
-        if (!selectedPage) {
-          alert("❌ Please select a Facebook page");
-          return;
-        }
-  
-        const page = pages.find(p => p.pageId === selectedPage);
-        if (!page?.instagramBusinessId) {
-          alert("❌ Selected page doesn't have Instagram connected");
-          return;
-        }
-  
-        setLoading(true);
-        try {
-          const response = await api.post("/user/story", {
-            userId: user._id,
-            pageId: selectedPage,
-            type: cont.videoUrl ? "video" : "image",
-            image: cont.image || null,
-            videoUrl: cont.videoUrl || null
-          });
-  
-          if (response.data.success) {
-            alert("✅ Story posted successfully! Expires in 24 hours.");
-            // ✅ Remove the posted content
-            setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
-          }
-        } catch (err) {
-          alert("❌ Failed to post story: " + (err.response?.data?.error || err.message));
-        } finally {
-          setLoading(false);
-        }
-        return;
-      }
-  
-      // Check platform selection
-      if (!postToFB && !postToIG && !postToTwitter && !postToLinkedIn && !postToYouTube) {
-        alert("Select at least one platform (Facebook, Instagram, Twitter, LinkedIn, or YouTube)");
-        return;
-      }
-  
-      // ✅ SCHEDULE POST (with edit support)
-      if (isScheduling) {
-        if (!scheduledDateTime) {
-          alert("❌ Please select a date and time for scheduling");
-          return;
-        }
-  
-        const scheduleDate = new Date(scheduledDateTime);
-        if (scheduleDate <= new Date()) {
-          alert("❌ Scheduled time must be in the future");
-          return;
-        }
-  
-        const platforms = [];
-        if (postToTwitter) platforms.push("twitter");
-        if (postToFB) platforms.push("facebook");
-        if (postToIG) platforms.push("instagram");
-        if (postToLinkedIn) platforms.push("linkedin");
-        if (postToYouTube) platforms.push("youtube");
-  
-        const hashtagArray = hashtags
-          .split(/[,\s]+/)
-          .filter(tag => tag.trim())
-          .map(tag => tag.replace("#", ""));
-  
-        setLoading(true);
-  
-        try {
-          const payload = {
-            title: cont.title || title || "",
-            caption: cont.title || title || "",
-            platform: platforms,
-            scheduledFor: scheduleDate.toISOString(),
-            hashtags: hashtagArray,
-            type: cont.type,
-            image: cont.image || null,
-            videoUrl: cont.videoUrl || null,
-            pageId: (postToFB || postToIG) ? selectedPage : null
-          };
-  
-          if (cont.type === "carousel") {
-            payload.items = cont.items;
-          }
-  
-          let response;
-          
-          if (editMode && editingPostId) {
-            response = await api.put(`/user/schedule-post/${editingPostId}`, payload);
-            alert(`✅ Post updated and scheduled for ${scheduleDate.toLocaleString()}!`);
-          } else {
-            response = await api.post("/user/schedule-post", payload);
-            alert(`✅ Post scheduled for ${scheduleDate.toLocaleString()}!`);
-          }
-  
-          if (response.data.success) {
-            // ✅ Clear uploaded content
-            setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
-            setIsScheduling(false);
-            setScheduledDateTime("");
-            setHashtags("");
-            
-            if (editMode) {
-              localStorage.removeItem("editScheduledPost");
-              setEditMode(false);
-              setEditingPostId(null);
-            }
-          }
-        } catch (error) {
-          alert("❌ Failed: " + (error.response?.data?.error || error.message));
-        } finally {
-          setLoading(false);
-        }
-        return;
-      }
-  
-      // ✅ IMMEDIATE POST
-      
-      // Only validate selectedPage if posting to FB or IG
-      if ((postToFB || postToIG) && !selectedPage) {
-        alert("❌ Please select a Facebook page for Facebook/Instagram posting");
-        return;
-      }
-  
-      // Check Instagram availability
-      if (postToIG && !currentPageHasIG()) {
+
+      const page = pages.find(p => p.pageId === selectedPage);
+      if (!page?.instagramBusinessId) {
         alert("❌ Selected page doesn't have Instagram connected");
         return;
       }
-  
-      // Check Twitter connection
-      if (postToTwitter && !twitterConnected) {
-        alert("❌ Twitter not connected. Please connect Twitter first.");
-        return;
-      }
-  
-      // Check carousel limitations
-      if (cont.type === "carousel") {
-        if (postToTwitter) {
-          alert("⚠️ Note: Carousel posts cannot be posted to Twitter. Will post to FB/IG only.");
-        }
-      }
-  
-      // Check LinkedIn connection
-      if (postToLinkedIn && !linkedInConnected) {
-        alert("❌ LinkedIn not connected. Please connect LinkedIn first.");
-        return;
-      }
-  
-      // Check Instagram rate limit
-      if (postToIG && rateLimits && rateLimits.quota_usage >= 25) {
-        alert("❌ Instagram daily limit reached (25 posts)");
-        return;
-      }
-  
-      // Check YouTube connection
-      if (postToYouTube && !youTubeConnected) {
-        alert("❌ YouTube not connected. Please connect YouTube first.");
-        return;
-      }
-  
-      // Validate YouTube requirements
-      if (postToYouTube && cont.type !== "video") {
-        alert("⚠️ YouTube only accepts video uploads. This post will skip YouTube.");
-        setPostToYouTube(false);
-      }
-  
+
       setLoading(true);
-  
+      setIgLoading(true); // ✅ Story uses Instagram
+
+      try {
+        const response = await api.post("/user/story", {
+          userId: user._id,
+          pageId: selectedPage,
+          type: cont.videoUrl ? "video" : "image",
+          image: cont.image || null,
+          videoUrl: cont.videoUrl || null
+        });
+
+        if (response.data.success) {
+          alert("✅ Story posted successfully! Expires in 24 hours.");
+          setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
+        }
+      } catch (err) {
+        alert("❌ Failed to post story: " + (err.response?.data?.error || err.message));
+      } finally {
+        setLoading(false);
+        setIgLoading(false); // ✅ Clear Instagram loading
+      }
+      return;
+    }
+
+    // Check platform selection
+    if (!postToFB && !postToIG && !postToTwitter && !postToLinkedIn && !postToYouTube) {
+      alert("Select at least one platform (Facebook, Instagram, Twitter, LinkedIn, or YouTube)");
+      return;
+    }
+
+    // ✅ SCHEDULE POST (with edit support)
+    if (isScheduling) {
+      if (!scheduledDateTime) {
+        alert("❌ Please select a date and time for scheduling");
+        return;
+      }
+
+      const scheduleDate = new Date(scheduledDateTime);
+      if (scheduleDate <= new Date()) {
+        alert("❌ Scheduled time must be in the future");
+        return;
+      }
+
+      const platforms = [];
+      if (postToTwitter) platforms.push("twitter");
+      if (postToFB) platforms.push("facebook");
+      if (postToIG) platforms.push("instagram");
+      if (postToLinkedIn) platforms.push("linkedin");
+      if (postToYouTube) platforms.push("youtube");
+
+      const hashtagArray = hashtags
+        .split(/[,\s]+/)
+        .filter(tag => tag.trim())
+        .map(tag => tag.replace("#", ""));
+
+      setLoading(true);
+
+      const postCaption = cont.title || title || "";
+
       try {
         const payload = {
-          userId: user._id,
-          title: cont.title || "",
+          title: postCaption,
+          caption: postCaption,
+          platform: platforms,
+          scheduledFor: scheduleDate.toISOString(),
+          hashtags: hashtagArray,
           type: cont.type,
           image: cont.image || null,
           videoUrl: cont.videoUrl || null,
-          postToFB,
-          postToIG,
-          postToTwitter: cont.type === "carousel" ? false : postToTwitter,
-          postToLinkedIn,
-          postToYouTube: (cont.type === "video" || cont.videoUrl) ? postToYouTube : false,
+          pageId: (postToFB || postToIG) ? selectedPage : null
         };
-  
-        // Only add pageId if posting to FB or IG
-        if (postToFB || postToIG) {
-          payload.pageId = selectedPage;
+
+        // ✅ YouTube-specific fields
+        if (postToYouTube && cont.videoUrl) {
+          payload.youtubeTitle = postCaption.substring(0, 100);
+          payload.youtubeDescription = postCaption;
+          payload.youtubeTags = hashtagArray;
+          payload.youtubePrivacy = "public";
+          payload.youtubeCategory = "22";
         }
-  
+
         if (cont.type === "carousel") {
           payload.items = cont.items;
         }
-  
-        const response = await api.post("/user/post", payload);
-  
-        if (response.data.success) {
-          const results = response.data.results;
-          const platforms = [];
-          
-          if (postToFB && (results.fb?.id || results.fb?.post_id)) platforms.push("Facebook");
-          if (postToIG && results.ig?.id) platforms.push("Instagram");
-          if (postToTwitter && results.twitter?.id) platforms.push("Twitter");
-          if (postToLinkedIn && results.linkedin?.id) platforms.push("LinkedIn");
-          if (postToYouTube && results.youtube?.videoId) platforms.push("YouTube"); // ✅ Fixed
-          
-          if (platforms.length > 0) {
-            // ✅ Show YouTube success modal if posted to YouTube
-            if (postToYouTube && results.youtube?.videoId) {
-              showYouTubeSuccessModal(results.youtube);
-            } else {
-              alert(`✅ Posted successfully to: ${platforms.join(", ")}!`);
-            }
-            
-            // ✅ IMPORTANT: Remove the posted content from UI
-            setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
-            
-            if (postToIG) {
-              setTimeout(() => fetchRateLimits(), 2000);
-            }
-          } else {
-            const errors = [];
-            if (postToFB && results.fb?.error) errors.push(`FB: ${results.fb.error.message}`);
-            if (postToIG && results.ig?.error) errors.push(`IG: ${results.ig.error.message}`);
-            if (postToTwitter && results.twitter?.error) errors.push(`Twitter: ${results.twitter.error}`);
-            if (postToLinkedIn && results.linkedin?.error) errors.push(`LinkedIn: ${results.linkedin.error}`);
-            if (postToYouTube && results.youtube?.error) errors.push(`YouTube: ${results.youtube.error}`);
-            
-            alert("❌ Failed to post:\n" + errors.join("\n"));
-          }
+
+        let response;
+        
+        if (editMode && editingPostId) {
+          response = await api.put(`/user/schedule-post/${editingPostId}`, payload);
+          alert(`✅ Post updated and scheduled for ${scheduleDate.toLocaleString()}!`);
         } else {
-          alert("❌ Failed to post: " + (response.data.error || "Unknown error"));
+          response = await api.post("/user/schedule-post", payload);
+          alert(`✅ Post scheduled for ${scheduleDate.toLocaleString()}!`);
         }
-      } catch (err) {
-        console.error("Post error:", err);
-        alert("❌ Failed to post: " + (err.response?.data?.error || err.message));
+
+        if (response.data.success) {
+          setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
+          setIsScheduling(false);
+          setScheduledDateTime("");
+          setHashtags("");
+          
+          if (editMode) {
+            localStorage.removeItem("editScheduledPost");
+            setEditMode(false);
+            setEditingPostId(null);
+          }
+        }
+      } catch (error) {
+        alert("❌ Failed: " + (error.response?.data?.error || error.message));
       } finally {
         setLoading(false);
       }
-  
-    } catch (err) {
-      setLoading(false);
-      alert("❌ Error: " + (err.response?.data?.error || err.message));
+      return;
     }
+
+    // ✅ IMMEDIATE POST WITH PLATFORM LOADING
+    // Validate FB/IG page selection
+    if ((postToFB || postToIG) && !selectedPage) {
+      alert("❌ Please select a Facebook page for Facebook/Instagram posting");
+      return;
+    }
+
+    // Check Instagram availability
+    if (postToIG && !currentPageHasIG()) {
+      alert("❌ Selected page doesn't have Instagram connected");
+      return;
+    }
+
+    // Connection checks
+    if (postToTwitter && !twitterConnected) {
+      alert("❌ Twitter not connected. Please connect Twitter first.");
+      return;
+    }
+    if (postToLinkedIn && !linkedInConnected) {
+      alert("❌ LinkedIn not connected. Please connect LinkedIn first.");
+      return;
+    }
+    if (postToYouTube && !youTubeConnected) {
+      alert("❌ YouTube not connected. Please connect YouTube first.");
+      return;
+    }
+
+    // Instagram rate limit
+    if (postToIG && rateLimits && rateLimits.quota_usage >= 25) {
+      alert("❌ Instagram daily limit reached (25 posts)");
+      return;
+    }
+
+    // YouTube validation
+    if (postToYouTube && cont.type !== "video") {
+      alert("⚠️ YouTube only accepts video uploads. This post will skip YouTube.");
+      setPostToYouTube(false);
+    }
+
+    // Carousel Twitter limitation
+    if (cont.type === "carousel" && postToTwitter) {
+      alert("⚠️ Carousel posts skip Twitter. Posting to FB/IG only.");
+      setPostToTwitter(false);
+    }
+
+    // ✅ SET INDIVIDUAL PLATFORM LOADING STATES
+    if (postToFB) setFbLoading(true);
+    if (postToIG) setIgLoading(true);
+    if (postToTwitter) setTwitterLoading(true);
+    if (postToLinkedIn) setLinkedinLoading(true);
+    if (postToYouTube) setYoutubeLoading(true);
+
+    setLoading(true);
+
+    try {
+      const payload = {
+        userId: user._id,
+        title: cont.title || "",
+        type: cont.type,
+        image: cont.image || null,
+        videoUrl: cont.videoUrl || null,
+        postToFB,
+        postToIG,
+        postToTwitter: cont.type === "carousel" ? false : postToTwitter,
+        postToLinkedIn,
+        postToYouTube: (cont.type === "video" || cont.videoUrl) ? postToYouTube : false,
+      };
+
+      if (postToFB || postToIG) {
+        payload.pageId = selectedPage;
+      }
+
+      if (cont.type === "carousel") {
+        payload.items = cont.items;
+      }
+
+      const response = await api.post("/user/post", payload);
+
+      if (response.data.success) {
+        const results = response.data.results;
+        const platforms = [];
+
+        // ✅ PROCESS RESULTS & CLEAR LOADING STATES
+        if (postToFB) {
+          setFbLoading(false);
+          if (results.fb?.id || results.fb?.post_id) platforms.push("Facebook");
+        }
+        if (postToIG) {
+          setIgLoading(false);
+          if (results.ig?.id) platforms.push("Instagram");
+        }
+        if (postToTwitter) {
+          setTwitterLoading(false);
+          if (results.twitter?.id) platforms.push("Twitter");
+        }
+        if (postToLinkedIn) {
+          setLinkedinLoading(false);
+          if (results.linkedin?.id) platforms.push("LinkedIn");
+        }
+        if (postToYouTube) {
+          setYoutubeLoading(false);
+          if (results.youtube?.videoId) platforms.push("YouTube");
+        }
+
+        if (platforms.length > 0) {
+          if (postToYouTube && results.youtube?.videoId) {
+            showYouTubeSuccessModal(results.youtube);
+          } else {
+            alert(`✅ Posted successfully to: ${platforms.join(", ")}!`);
+          }
+
+          // Remove posted content
+          setContentData(prev => prev.filter((_, i) => i !== contentData.indexOf(cont)));
+          
+          if (postToIG) {
+            setTimeout(() => fetchRateLimits(), 2000);
+          }
+        } else {
+          // Show specific errors
+          const errors = [];
+          if (postToFB && results.fb?.error) errors.push(`FB: ${results.fb.error.message}`);
+          if (postToIG && results.ig?.error) errors.push(`IG: ${results.ig.error.message}`);
+          if (postToTwitter && results.twitter?.error) errors.push(`Twitter: ${results.twitter.error}`);
+          if (postToLinkedIn && results.linkedin?.error) errors.push(`LinkedIn: ${results.linkedin.error}`);
+          if (postToYouTube && results.youtube?.error) errors.push(`YouTube: ${results.youtube.error}`);
+
+          alert("❌ Failed to post:\n" + errors.join("\n"));
+        }
+      } else {
+        alert("❌ Failed to post: " + (response.data.error || "Unknown error"));
+      }
+    } catch (err) {
+      console.error("Post error:", err);
+    } finally {
+      // ✅ ALWAYS CLEAR ALL LOADING STATES
+      setFbLoading(false);
+      setIgLoading(false);
+      setTwitterLoading(false);
+      setLinkedinLoading(false);
+      setYoutubeLoading(false);
+      setLoading(false);
+    }
+  } catch (err) {
+    console.error("Handle post error:", err);
+    setFbLoading(false);
+    setIgLoading(false);
+    setTwitterLoading(false);
+    setLinkedinLoading(false);
+    setYoutubeLoading(false);
+    setLoading(false);
+    alert("❌ Error: " + (err.response?.data?.error || err.message));
   }
-  
+}
+
 
   const buildImageUrl = (img) => {
     if (!img) return "";
@@ -977,10 +1022,13 @@ function showYouTubeSuccessModal(youtubeData) {
     return base ? `${base.replace(/\/$/, "")}/${img.replace(/^\/+/, "")}` : img;
   };
 
-  const currentPageHasIG = () => {
-    const page = pages.find(p => p.pageId === selectedPage);
-    return !!page?.instagramBusinessId;
-  };
+ // Add this function if you don't have it
+const currentPageHasIG = () => {
+  if (!selectedPage || pages.length === 0) return false;
+  const page = pages.find(p => p.pageId === selectedPage);
+  return !!page?.instagramBusinessId;
+};
+
 
 
 
@@ -1252,110 +1300,154 @@ const checkYouTubeConnection = async () => {
   
         {/* Platform Selection - Only for Media & Text */}
         {contentType !== "story" && (
-          <div className="platform-box">
-            <h3>📱 Select Platforms</h3>
-  
-            {/* ✅ PAGE SELECTION FIRST (Always visible) */}
+  <div className="platform-box">
+    <h3>📱 Select Platforms</h3>
+    
+    {/* PAGE SELECTION - Use Backend Data Directly */}
+    <div style={{ 
+      backgroundColor: '#f8f9fa', 
+      padding: '15px', 
+      borderRadius: '8px',
+      marginBottom: '15px'
+    }}>
+      <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600' }}>
+        📄 Select Facebook Page
+      </label>
+      
+      {pages.length > 0 ? (
+        <>
+          <select
+            value={selectedPage || ""}
+            onChange={(e) => handlePageChange(e.target.value)}
+            className="page-select"
+            style={{ width: '100%', padding: '10px', borderRadius: '6px' }}
+          >
+            {pages.map((page) => (
+              <option key={page.pageId} value={page.pageId}>
+                {page.pageName} {page.instagramBusinessId ? `📸 IG: @${page.instagramUsername || 'IG'}` : ""}
+              </option>
+            ))}
+          </select>
+          
+          {/* ✅ CURRENT PAGE INFO - Backend Data Only */}
+          {selectedPage && pages.length > 0 && (
             <div style={{ 
-              backgroundColor: '#f8f9fa', 
-              padding: '15px', 
-              borderRadius: '8px',
-              marginBottom: '15px'
+              padding: '12px', 
+              backgroundColor: '#e8f4fd', 
+              borderRadius: '6px', 
+              marginTop: '10px'
             }}>
-              <label style={{ 
-                display: 'block', 
-                marginBottom: '8px', 
-                fontWeight: '600',
-                color: '#333',
-                fontSize: '14px'
-              }}>
-                📄 Select Facebook Page
-              </label>
+              <strong>✅ Selected:</strong> 
+              {pages.find(p => p.pageId === selectedPage)?.pageName}
               
-              {pages.length > 0 ? (
-                <>
-                  <select
-                    value={selectedPage}
-                    onChange={(e) => handlePageChange(e.target.value)}
-                    className="page-select"
-                    style={{ marginBottom: '10px' }}
-                  >
-                    {pages.map((page) => (
-                      <option key={page.pageId} value={page.pageId}>
-                        {page.pageName} {page.instagramBusinessId ? "📸 IG Linked" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  
-                  <small style={{ color: '#666', fontSize: '12px', display: 'block' }}>
-                    💡 This page is used for Facebook/Instagram posting. Select to enable these platforms.
-                  </small>
-                </>
-              ) : (
-                <div style={{ 
-                  color: '#dc3545', 
-                  fontSize: '13px',
-                  padding: '10px',
-                  backgroundColor: '#f8d7da',
-                  borderRadius: '6px',
-                  border: '1px solid #f5c2c7'
-                }}>
-                  ⚠️ No Facebook pages connected. <a href="/" style={{ color: '#dc3545', fontWeight: '600' }}>Connect Facebook</a>
-                </div>
-              )}
+              {/* ✅ IG PROFILE - Direct from Backend */}
+              {(() => {
+                const page = pages.find(p => p.pageId === selectedPage);
+                if (page?.instagramBusinessId) {
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '5px' }}>
+                      {page.instagramProfilePicture && (
+                        <img 
+                          src={page.instagramProfilePicture}
+                          alt="IG Profile"
+                          style={{
+                            width: '24px', height: '24px', 
+                            borderRadius: '50%', 
+                            border: '2px solid #E4405F'
+                          }}
+                        />
+                      )}
+                      <span style={{ color: '#E4405F', fontWeight: '600' }}>
+                        📸 @{page.instagramUsername || 'Connected'}
+                      </span>
+                      <small style={{ color: '#666' }}>
+                        ID: {page.instagramBusinessId}
+                      </small>
+                    </div>
+                  );
+                }
+                return <span style={{ color: '#666' }}>📱 No Instagram</span>;
+              })()}
             </div>
-  
-            {/* ✅ FACEBOOK CHECKBOX - Now independent */}
-            <label className={`platform-option ${postToFB ? "active" : ""} ${!selectedPage ? "disabled" : ""}`}>
-              <input
-                type="checkbox"
-                checked={postToFB}
-                onChange={(e) => setPostToFB(e.target.checked)}
-                disabled={!selectedPage}
+          )}
+        </>
+      ) : (
+        <div style={{ color: '#dc3545', padding: '10px', backgroundColor: '#f8d7da' }}>
+          ⚠️ No pages connected
+        </div>
+      )}
+    </div>
+
+    {/* FACEBOOK */}
+    <label className={`platform-option ${postToFB ? "active" : ""}`}>
+      <input 
+        type="checkbox" 
+        checked={postToFB} 
+        onChange={(e) => setPostToFB(e.target.checked)}
+        disabled={!selectedPage}
+      />
+      <span className="icon">📘</span>
+      Post to Facebook
+    </label>
+
+    {/* INSTAGRAM - Backend Data Only */}
+    {selectedPage && (() => {
+      const page = pages.find(p => p.pageId === selectedPage);
+      if (!page?.instagramBusinessId) {
+        return (
+          <label className="platform-option disabled">
+            <input type="checkbox" disabled />
+            <span className="icon">📸</span>
+            Post to Instagram <small style={{ color: '#dc3545' }}>No IG Account</small>
+          </label>
+        );
+      }
+
+      return (
+        <label className={`platform-option ${postToIG ? "active" : ""}`}>
+          <input 
+            type="checkbox" 
+            checked={postToIG} 
+            onChange={(e) => setPostToIG(e.target.checked)}
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="icon">📸</span>
+            {page.instagramProfilePicture && (
+              <img 
+                src={page.instagramProfilePicture}
+                style={{ width: '20px', height: '20px', borderRadius: '50%', border: '2px solid #E4405F' }}
               />
-              <span className="icon">📘</span>
-              <span>Post to Facebook</span>
-              {!selectedPage && <small style={{ color: '#dc3545' }}>Select page first</small>}
-            </label>
-  
-            {/* ✅ INSTAGRAM CHECKBOX - Based on page selection, NOT Facebook checkbox */}
-            <label
-              className={`platform-option ${postToIG ? "active" : ""} ${
-                !selectedPage || !currentPageHasIG() ? "disabled" : ""
-              }`}
-            >
-              <input
-                type="checkbox"
-                checked={postToIG}
-                disabled={!selectedPage || !currentPageHasIG()}
-                onChange={(e) => {
-                  if (!currentPageHasIG()) {
-                    alert("❌ Selected page doesn't have Instagram linked");
-                    return;
-                  }
-                  setPostToIG(e.target.checked);
-                }}
-              />
-              <span className="icon">📸</span>
-              <span>Post to Instagram</span>
-              {!selectedPage && <small style={{ color: '#666' }}>Select page first</small>}
-              {selectedPage && !currentPageHasIG() && (
-                <small style={{ color: '#dc3545' }}>This page has no Instagram</small>
-              )}
-            </label>
-  
-            {postToIG && rateLimits && (
-              <div className="rate-info">
-                <span>
-                  📊 Instagram: {rateLimits.quota_usage}/25 posts today
-                </span>
-                <div className="rate-bar">
-                  <div
-                    style={{ width: `${(rateLimits.quota_usage / 25) * 100}%` }}
-                  />
-                </div>
-              </div>
             )}
+            <span>Post to Instagram (@{page.instagramUsername})</span>
+          </div>
+        </label>
+      );
+    })()}
+
+
+    {/* ✅ Rate Limits (only show if IG selected) */}
+    {postToIG && selectedPage && pages.length > 0 && (() => {
+      const currentPage = pages.find(p => p.pageId === selectedPage);
+      if (!currentPage?.instagramBusinessId || !rateLimits) return null;
+      
+      return (
+        <div className="rate-info" style={{ marginTop: '10px' }}>
+          <span>
+            📊 Instagram: {rateLimits.quota_usage}/25 posts today
+          </span>
+          <div className="rate-bar" style={{ height: '6px', backgroundColor: '#eee', borderRadius: '3px', overflow: 'hidden', marginTop: '4px' }}>
+            <div
+              style={{ 
+                height: '100%', 
+                width: `${Math.min((rateLimits.quota_usage / 25) * 100, 100)}%`,
+                backgroundColor: rateLimits.quota_usage > 20 ? '#dc3545' : '#28a745',
+                transition: 'width 0.3s ease'
+              }}
+            />
+          </div>
+        </div>
+      );
+    })()}
   
             {/* ✅ TWITTER CHECKBOX - Already independent, unchanged */}
             <label
@@ -2029,11 +2121,10 @@ const checkYouTubeConnection = async () => {
                 </div>
   
                 <div className="post-actions">
-
                 <button
   onClick={() => handlePost(cont)}
   className="btn-post-now"
-  disabled={loading}
+  disabled={loading || fbLoading || igLoading || twitterLoading || linkedinLoading || youtubeLoading}
 >
   {loading 
     ? '⏳ Processing...' 
@@ -2044,6 +2135,23 @@ const checkYouTubeConnection = async () => {
     : "🚀 Post Now"
   }
 </button>
+
+{/* ✅ NEW: Platform Loading Indicators */}
+{fbLoading && (
+  <div className="loading-platform">
+    📘 Facebook: <span style={{ color: '#1877F2' }}>Posting...</span>
+  </div>
+)}
+{igLoading && (
+  <div className="loading-platform">
+    📸 Instagram: <span style={{ color: '#E4405F' }}>Posting...</span>
+  </div>
+)}
+{twitterLoading && (
+  <div className="loading-platform">
+    🐦 Twitter: <span style={{ color: '#1DA1F2' }}>Posting...</span>
+  </div>
+)}
 
   
 

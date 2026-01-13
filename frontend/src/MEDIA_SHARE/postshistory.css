@@ -1532,7 +1532,7 @@ box-sizing: border-box;
   background: linear-gradient(135deg, #FF0000 0%, #CC0000 100%);
   color: white;
   padding: 4px 10px;
-  border-radius: 4px;
+  border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
   display: inline-block;

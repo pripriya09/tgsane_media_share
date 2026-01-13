@@ -1,4 +1,4 @@
-// models/ScheduledPost.js
+// backend/models/ScheduledPost.js
 import mongoose from "mongoose";
 
 const scheduledPostSchema = new mongoose.Schema({
@@ -34,7 +34,7 @@ const scheduledPostSchema = new mongoose.Schema({
   },
   platform: {
     type: [String],
-    enum: ["facebook", "instagram", "twitter", "linkedin"],
+    enum: ["facebook", "instagram", "twitter", "linkedin", "youtube"], // ✅ YouTube added
     required: true,
   },
   selectedPages: {
@@ -58,10 +58,44 @@ const scheduledPostSchema = new mongoose.Schema({
     enum: ["scheduled", "posted", "failed"],
     default: "scheduled",
   },
-  results: {
-    type: Object,
-    default: {},
+  
+  // ✅ YouTube-specific fields (NEW)
+  youtubeTitle: {
+    type: String,
+    default: null,
   },
+  youtubeDescription: {
+    type: String,
+    default: null,
+  },
+  youtubeTags: {
+    type: [String],
+    default: [],
+  },
+  youtubePrivacy: {
+    type: String,
+    enum: ["public", "private", "unlisted"],
+    default: "public",
+  },
+  youtubeCategory: {
+    type: String,
+    default: "22", // People & Blogs
+  },
+  
+  // Results and retry logic
+  results: {
+    type: Array, // ✅ Changed from Object to Array to match platformResults structure
+    default: [],
+  },
+  retryCount: {
+    type: Number,
+    default: 0,
+  },
+  maxRetries: {
+    type: Number,
+    default: 3,
+  },
+  
   error: {
     type: String,
     default: null,
@@ -78,24 +112,9 @@ const scheduledPostSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
-
-    // ✅ ADD THESE:
-    retryCount: {
-        type: Number,
-        default: 0
-      },
-      maxRetries: {
-        type: Number,
-        default: 3
-      },
-      results: {
-        type: Object,
-        default: {}
-      }
-
 });
 
-// Index for efficient querying
+// Indexes for efficient querying
 scheduledPostSchema.index({ userId: 1, scheduledFor: 1 });
 scheduledPostSchema.index({ status: 1, scheduledFor: 1 });
 

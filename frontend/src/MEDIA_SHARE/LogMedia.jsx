@@ -9,7 +9,7 @@ function LogMedia() {
   const [connectedPages, setConnectedPages] = useState([]);
   const [showTutorial, setShowTutorial] = useState(false);
   const [hasSeenTutorial, setHasSeenTutorial] = useState(false);
-
+  const [instagramProfiles, setInstagramProfiles] = useState({}); 
   // Twitter states
   const [twitterConnected, setTwitterConnected] = useState(false);
   const [twitterUsername, setTwitterUsername] = useState("");
@@ -34,13 +34,10 @@ function LogMedia() {
       setShowTutorial(true);
     }
 
-    // ✅ Check connection status from server first
     checkFacebookConnection();
-    
-    // Then check Twitter, LinkedIn, and YouTube
     checkTwitterConnection();
     checkLinkedInConnection();
-    checkYouTubeConnection(); // ✅ ADD THIS
+    checkYouTubeConnection();
 
     window.addEventListener('message', handleOAuthMessage);
 
@@ -68,6 +65,28 @@ function LogMedia() {
     };
   }, []);
 
+  const fetchInstagramProfiles = async (pages) => {
+    try {
+      const profiles = {};
+      for (const page of pages) {
+        if (page.instagramBusinessId) {
+          try {
+            // ✅ TEMPORARILY USE STATIC PROFILE PIC (backend not ready yet)
+            profiles[page.instagramBusinessId] = {
+              username: page.instagramUsername || 'instagram',
+              profilePictureUrl: page.instagramProfilePicture || null,
+            };
+            console.log(`✅ Mock IG profile for ${page.instagramBusinessId}`);
+          } catch (err) {
+            console.warn(`Failed to fetch IG profile for ${page.instagramBusinessId}:`, err);
+          }
+        }
+      }
+      setInstagramProfiles(profiles);  // ✅ NOW THIS WORKS
+    } catch (error) {
+      console.error('Error fetching Instagram profiles:', error);
+    }
+  };
   const handleOAuthMessage = (event) => {
     if (event.origin !== window.location.origin) return;
 
@@ -88,7 +107,7 @@ function LogMedia() {
       setLinkedInLoading(false);
       alert('❌ LinkedIn connection failed: ' + event.data.error);
     }
-  };
+  }
 
   const loadUserProfile = async () => {
     try {
@@ -159,11 +178,15 @@ function LogMedia() {
       setConnectedPages(pages);
       if (pages.length > 0) {
         localStorage.setItem("ms_pages", JSON.stringify(pages));
+        
+        // ✅ NEW: Fetch Instagram profiles for all pages
+        // await fetchInstagramProfiles(pages);
       }
     } catch (err) {
       console.warn("Could not load pages:", err);
     }
   };
+
 
   const checkTwitterConnection = async () => {
     try {
@@ -413,7 +436,16 @@ function LogMedia() {
                 localStorage.setItem("ms_pages", JSON.stringify(pages));
                 setConnectedPages(pages);
 
-                alert("✅ Facebook connected successfully!");
+               // ✅ FIXED: Better success message for App Review!
+               const hasInstagram = pages.some(page => page.instagramBusinessId);
+               if (hasInstagram) {
+                 alert("✅ Facebook & Instagram Connected Successfully!\n📄 Pages with Instagram: " + pages.filter(p => p.instagramBusinessId).length);
+               } else {
+                 alert("✅ Facebook Connected Successfully!\n⚠️ Connect Instagram Professional Account to your Facebook Page");
+               }
+ 
+               // ✅ NEW: Fetch Instagram profiles
+               await fetchInstagramProfiles(pages);
               }
             } catch (err) {
               const errorMsg = err.response?.data?.error || err.message;
@@ -484,12 +516,62 @@ function LogMedia() {
         if (profile.facebook?.connected) {
           await loadConnectedPages();
         }
+
+        if (userProfile?.facebookConnected) {
+          await loadConnectedPages();
+        }
       }
     } catch (error) {
       console.error('❌ Error checking Facebook connection:', error);
     }
   };
 
+
+  const renderPageCard = (page, idx) => {
+    return (
+      <div key={idx} className="page-card">
+        <div className="page-card-name">{page.pageName}</div>
+        {page.instagramBusinessId && (
+          <div className="instagram-info">
+            📷 Instagram: 
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {/* ✅ DIRECT FROM BACKEND - No state needed! */}
+              {page.instagramProfilePicture ? (
+                <img 
+                  src={page.instagramProfilePicture} 
+                  alt={`@${page.instagramUsername}`}
+                  style={{
+                    width: '32px', height: '32px', 
+                    borderRadius: '50%', 
+                    border: '2px solid #E4405F'
+                  }}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'flex';
+                  }}
+                />
+              ) : (
+                <div style={{
+                  width: '32px', height: '32px', 
+                  borderRadius: '50%', 
+                  backgroundColor: '#E4405F',
+                  display: 'flex', alignItems: 'center', 
+                  justifyContent: 'center', color: 'white', 
+                  fontSize: '12px', fontWeight: 'bold'
+                }}>
+                  IG
+                </div>
+              )}
+              <strong>@{page.instagramUsername || 'Connected'}</strong>
+              <span className="instagram-id">ID: {page.instagramBusinessId}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+  
+  
   return (
     <div className="logmedia-container">
       {/* TUTORIAL MODAL */}
@@ -525,7 +607,7 @@ function LogMedia() {
           <div>
             <h3>👤 {userProfile.username}</h3>
             <p>
-              {userProfile.facebookConnected ? "✅ Facebook Connected" : "❌ Facebook Not Connected"}
+            {userProfile.facebookConnected ? "✅ Facebook Connected" : "❌ Facebook Not Connected"}
               <br />
               {twitterConnected ? `✅ Twitter Connected (@${twitterUsername})` : "❌ Twitter Not Connected"}
               <br />
@@ -535,23 +617,12 @@ function LogMedia() {
               {youtubeConnected ? `✅ YouTube Connected (${youtubeChannelName})` : "❌ YouTube Not Connected"}
             </p>
           </div>
+          
 
           {userProfile.facebookConnected && connectedPages.length > 0 && (
             <div className="connected-pages">
               <strong>📄 Connected Pages:</strong>
-              {connectedPages.map((page, idx) => (
-                <div key={idx} className="page-card">
-                  <div className="page-card-name">{page.pageName}</div>
-                  {page.instagramBusinessId && (
-                    <div className="instagram-info">
-                      📷 Instagram: <strong>
-                        {page.instagramUsername ? `@${page.instagramUsername}` : 'Connected'}
-                      </strong>
-                      <span className="instagram-id">ID: {page.instagramBusinessId}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
+              {connectedPages.map((page, idx) => renderPageCard(page, idx))}
             </div>
           )}
         </div>

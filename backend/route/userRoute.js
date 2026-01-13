@@ -5,6 +5,7 @@ import {
   connectFacebook, 
   getConnectedPages, 
   postToChannels,
+  getInstagramProfile,
   checkRateLimits,
   getPostStats,  
   postStory,
@@ -67,6 +68,7 @@ router.get("/pages", ensureAuth(), getConnectedPages);
 router.post("/post", ensureAuth(), postToChannels);
 router.get("/post-stats", ensureAuth(), getPostStats);
 router.post("/facebook/disconnectFB", ensureAuth(), disconnectFacebook);
+router.get("/instagram/profile/:igBusinessId", ensureAuth(), getInstagramProfile); 
 
 // Get all posts
 router.get("/posts", ensureAuth(), async (req, res) => {

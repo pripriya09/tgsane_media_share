@@ -8,7 +8,7 @@ import fs from 'fs';
 const oauth2Client = new google.auth.OAuth2(
   process.env.YOUTUBE_CLIENT_ID,
   process.env.YOUTUBE_CLIENT_SECRET,
-  'https://localhost:5174/auth/youtube/callback'
+  process.env.YOUTUBE_REDIRECT_URI,
 );
 
 // ========================================
@@ -30,7 +30,7 @@ export const initiateYouTubeAuth = async (req, res) => {
         'https://www.googleapis.com/auth/youtube.readonly'
       ],
       state: userId,
-      redirect_uri: 'https://localhost:5174/auth/youtube/callback',
+      redirect_uri: process.env.YOUTUBE_REDIRECT_URI,
       prompt: 'consent'
     });
 
@@ -45,7 +45,8 @@ export const initiateYouTubeAuth = async (req, res) => {
 };
 // ========================================
 // 2. Handle YouTube OAuth Callback
-// ========================================
+// ========================================  
+
 export const youtubeCallback = async (req, res) => {
   console.log('🎯 YouTube callback API called');
   
@@ -60,6 +61,7 @@ export const youtubeCallback = async (req, res) => {
   }
 
   try {
+    
     console.log('📡 Exchanging code for tokens...');
     
     // Exchange authorization code for tokens

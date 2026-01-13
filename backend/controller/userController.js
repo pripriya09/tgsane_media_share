@@ -71,8 +71,9 @@ export const getUserProfile = async (req, res) => {
         pages: user.pages?.map(page => ({
           pageId: page.pageId,
           pageName: page.pageName,
-          hasInstagram: !!page.instagramBusinessId,
-          instagramUsername: page.instagramUsername
+          instagramBusinessId: page.instagramBusinessId,
+          instagramUsername: page.instagramUsername,
+          hasInstagramProfile: !!page.instagramUsername  // ✅ NEW
         })) || []
       },
       
@@ -120,6 +121,9 @@ export const getUserProfile = async (req, res) => {
 };
 
 
+
+
+
 export async function connectFacebook(req, res) {
   try {
     const { userAccessToken, userId } = req.body;
@@ -135,28 +139,26 @@ export async function connectFacebook(req, res) {
     for (const p of pagesJson.data || []) {
       let instagramBusinessId = null;
       let instagramUsername = null;
+      let instagramProfilePicture = null;
 
       if (p.instagram_business_account?.id) {
         instagramBusinessId = p.instagram_business_account.id;
         
-        // ✅ Try to fetch Instagram username
+        // ✅ IMPROVED: Fetch Instagram profile with better error handling
         try {
-          const igUrl = `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}?fields=username&access_token=${p.access_token}`;
+          const igUrl = `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}?fields=username,name,profile_picture_url&access_token=${p.access_token}`;
           const igResp = await fetch(igUrl);
           const igJson = await igResp.json();
           
-          console.log(`📊 Instagram API response for ${instagramBusinessId}:`, igJson); // ✅ DEBUG
+          console.log(`📊 IG ${instagramBusinessId}:`, igJson);
           
           if (igJson.username) {
             instagramUsername = igJson.username;
-            console.log(`✅ Fetched Instagram username: @${instagramUsername} for page ${p.name}`);
-          } else if (igJson.error) {
-            console.error(`❌ Instagram API error:`, igJson.error);
-          } else {
-            console.warn(`⚠️ No username in response:`, igJson);
+            instagramProfilePicture = igJson.profile_picture_url;
+            console.log(`✅ IG username: @${instagramUsername}`);
           }
         } catch (igErr) {
-          console.error(`❌ Failed to fetch Instagram username for ${instagramBusinessId}:`, igErr);
+          console.warn(`⚠️ IG username fetch failed:`, igErr.message);
         }
       }
 
@@ -165,7 +167,8 @@ export async function connectFacebook(req, res) {
         pageName: p.name || "Unnamed Page",
         pageAccessToken: p.access_token,
         instagramBusinessId,
-        instagramUsername: instagramUsername || null, // ✅ Ensure it's null if not found
+        instagramUsername: instagramUsername || null,
+        instagramProfilePicture: instagramProfilePicture || null,  // ✅ NEW: Save profile pic too
       });
     }
 
@@ -184,42 +187,96 @@ export async function connectFacebook(req, res) {
     if (!user) return res.status(404).json({ error: "User not found" });
 
     console.log(`✅ Saved ${enrichedPages.length} pages for user ${userId}`);
-    console.log(`📊 Full page data:`, JSON.stringify(enrichedPages, null, 2)); // ✅ DEBUG
+    console.log(`📊 Full page data:`, JSON.stringify(enrichedPages, null, 2));
 
     const safePages = enrichedPages.map(p => ({
       pageId: p.pageId,
       pageName: p.pageName,
       instagramBusinessId: p.instagramBusinessId,
       instagramUsername: p.instagramUsername,
+      instagramProfilePicture: p.instagramProfilePicture,  // ✅ NEW: Include profile pic
     }));
 
-    return res.json({ success: true, pages: safePages, facebookConnected: true });
+    // ✅ FIXED: Better success message for App Review!
+    const hasInstagram = enrichedPages.some(page => page.instagramBusinessId);
+    if (hasInstagram) {
+      const igCount = enrichedPages.filter(p => p.instagramBusinessId).length;
+      console.log(`🎉 Found ${igCount} Instagram accounts!`);
+    }
+
+    return res.json({ 
+      success: true, 
+      pages: safePages, 
+      facebookConnected: true,
+      instagramConnected: hasInstagram  // ✅ NEW: Explicit Instagram status
+    });
   } catch (err) {
     console.error("connectFacebook error:", err);
     return res.status(500).json({ error: err.message });
   }
 }
 
-// // Backend - Add to userController.js
-// export async function checkRateLimits(req, res) {
-//   try {
-//     const { instagramBusinessId, pageAccessToken } = req.body;
+
+export async function getInstagramProfile(req, res) {
+  try {
+    const { igBusinessId } = req.params;
+    const userId = req.user.userId;
+
+    if (!igBusinessId) {
+      return res.status(400).json({ error: "Instagram Business ID required" });
+    }
+
+    console.log(`📸 Fetching Instagram profile for IG ID: ${igBusinessId}, User: ${userId}`);
+
+    // Find user's page with this Instagram account
+    const user = await User.findById(userId).select("pages");
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const page = user.pages.find(p => p.instagramBusinessId === igBusinessId);
+    if (!page || !page.pageAccessToken) {
+      return res.status(400).json({ error: "Page token not found for this Instagram account" });
+    }
+
+    // ✅ Fetch Instagram profile using Page Access Token
+    const igUrl = `https://graph.facebook.com/${FB_API_VERSION}/${igBusinessId}?fields=id,username,name,profile_picture_url,followers_count,media_count&access_token=${page.pageAccessToken}`;
     
-//     const resp = await fetch(
-//       `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}/content_publishing_limit`,
-//       {
-//         method: "GET",
-//         headers: { "Authorization": `Bearer ${pageAccessToken}` }
-//       }
-//     );
-//     const data = await resp.json();
+    console.log(`🔗 Instagram API call: ${igUrl}`);
     
-//     // Returns: { data: [{ quota_usage: 15, config: { quota_total: 25 } }] }
-//     return res.json(data);
-//   } catch (err) {
-//     return res.status(500).json({ error: err.message });
-//   }
-// }
+    const response = await fetch(igUrl);
+    const igProfile = await response.json();
+
+    console.log(`📊 Instagram profile response:`, igProfile);
+
+    if (igProfile.error) {
+      console.error("❌ Instagram API error:", igProfile.error);
+      return res.status(500).json({ 
+        error: igProfile.error.message,
+        details: igProfile.error 
+      });
+    }
+
+    if (igProfile.id) {
+      return res.json({ 
+        success: true, 
+        profile: {
+          id: igProfile.id,
+          username: igProfile.username,
+          name: igProfile.name,
+          profilePictureUrl: igProfile.profile_picture_url,
+          followersCount: igProfile.followers_count,
+          mediaCount: igProfile.media_count
+        }
+      });
+    }
+
+    res.json({ success: false, error: "Profile not found" });
+  } catch (error) {
+    console.error("❌ getInstagramProfile error:", error);
+    res.status(500).json({ error: error.message });
+  }
+}
 
 // userController.js - Updated version
 export async function checkRateLimits(req, res) {
@@ -273,34 +330,35 @@ export async function getConnectedPages(req, res) {
   try {
     const userId = req.user?.userId;
     if (!userId) {
-      console.log("No userId from JWT");
       return res.status(401).json({ error: "Unauthorized" });
     }
 
     const user = await User.findById(userId).select("pages facebookConnected");
     if (!user) {
-      console.log("User not found:", userId);
       return res.status(404).json({ error: "User not found" });
     }
 
-    const safePages = (user.pages || []).map(p => ({
+    // ✅ RETURN FULL PAGE DATA (same as connectFacebook saves)
+    const fullPages = (user.pages || []).map(p => ({
       pageId: p.pageId,
       pageName: p.pageName,
+      pageAccessToken: p.pageAccessToken,        // ✅ Include
       instagramBusinessId: p.instagramBusinessId || null,
+      instagramUsername: p.instagramUsername || null,      // ✅ Include
+      instagramProfilePicture: p.instagramProfilePicture || null  // ✅ Include
     }));
 
-    console.log("Returning pages for user:", userId, "Facebook Connected:", user.facebookConnected, safePages);
+    console.log("Returning FULL pages for user:", userId, fullPages);
 
     return res.json({ 
-      pages: safePages, 
-      facebookConnected: user.facebookConnected || false  // ← Return connection status
+      pages: fullPages, 
+      facebookConnected: user.facebookConnected || false
     });
   } catch (err) {
     console.error("getConnectedPages error:", err);
     return res.status(500).json({ error: err.message });
   }
 }
-
 cloudinary.config({
   cloud_name: process.env.CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,

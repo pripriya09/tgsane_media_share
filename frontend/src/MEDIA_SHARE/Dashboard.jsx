@@ -50,30 +50,30 @@ function Dashboard() {
           <h3>Menu</h3>
           <div className="nav-links">
             <Link to="/home/connect" className="nav-link">
-              🔗 Connect FB
+               Connect Media
             </Link>
 
             <Link to="/home/create" className="nav-link">
-              ✏️ Create Post
+               Create Post
             </Link>
 
             <Link to="/home/schedule" className="nav-link">
-              📅 Schedule Posts
+               Schedule Posts
             </Link>
 
             <Link to="/home/history" className="nav-link">
-              📊 Posts History
+               Posts History
             </Link>
 
             <Link to="/home/media-gallery" className="nav-link">
-              🖼️ Media Gallery
+               Media Gallery
             </Link>
           </div>
         </div>
 
         {/* Logout Button */}
         <button onClick={handleLogoutClick} className="logout-btn">
-          🚪 Logout
+           Logout
         </button>
       </nav>
 

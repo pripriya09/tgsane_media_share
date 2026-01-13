@@ -10,7 +10,7 @@ function SchedulePost() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // ✅ NEW: Edit modal states
+  // ✅ Edit modal states with YouTube
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingPost, setEditingPost] = useState(null);
   const [editForm, setEditForm] = useState({
@@ -21,6 +21,7 @@ function SchedulePost() {
       ig: false,
       twitter: false,
       linkedin: false,
+      youtube: false, // ✅ Already added
     },
     hashtags: ""
   });
@@ -36,25 +37,31 @@ function SchedulePost() {
       const response = await api.get("/user/scheduled-posts");
       const allPosts = response.data.posts || [];
       
-      // ✅ FILTER: Only show posts with status "scheduled"
-      // Hide "posted" and "failed" posts (they're in PostsHistory now)
-      const activePosts = allPosts.filter(post => post.status === "scheduled");
+      const now = new Date();
+      
+      // ✅ FIXED: Filter out posted, failed, AND past scheduled posts
+      const activePosts = allPosts.filter(post => {
+        // Only show scheduled posts
+        if (post.status !== "scheduled") return false;
+        
+        // Only show future posts (not already executed)
+        const scheduledTime = new Date(post.scheduledFor);
+        return scheduledTime > now;
+      });
       
       setScheduledPosts(activePosts);
       
-      console.log(`📋 Loaded ${activePosts.length} scheduled posts (${allPosts.length} total)`);
+      console.log(`📋 Loaded ${activePosts.length} active scheduled posts (${allPosts.length} total)`);
     } catch (error) {
       console.error("Failed to load scheduled posts:", error);
     } finally {
       setLoading(false);
     }
   }
-
-  // ✅ NEW: Open edit modal
+  
   function handleEdit(post) {
     setEditingPost(post);
     
-    // Format date for datetime-local input
     const date = new Date(post.scheduledFor);
     const formattedDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
       .toISOString()
@@ -68,6 +75,7 @@ function SchedulePost() {
         ig: post.platform?.includes("instagram") || false,
         twitter: post.platform?.includes("twitter") || false,
         linkedin: post.platform?.includes("linkedin") || false,
+        youtube: post.platform?.includes("youtube") || false // ✅ Already added
       },
       hashtags: post.hashtags?.join(", ") || ""
     });
@@ -75,7 +83,6 @@ function SchedulePost() {
     setShowEditModal(true);
   }
 
-  // ✅ NEW: Handle form changes
   function handleEditChange(field, value) {
     setEditForm(prev => ({ ...prev, [field]: value }));
   }
@@ -90,7 +97,6 @@ function SchedulePost() {
     }));
   }
 
-  // ✅ NEW: Submit edit
   async function submitEdit() {
     if (!editForm.caption.trim()) {
       alert("❌ Caption cannot be empty");
@@ -108,12 +114,24 @@ function SchedulePost() {
       return;
     }
 
+    // ✅ FIXED: Map all platforms correctly
     const selectedPlatforms = Object.keys(editForm.platforms)
       .filter(key => editForm.platforms[key])
-      .map(p => p === "fb" ? "facebook" : p === "ig" ? "instagram" : p);
+      .map(p => {
+        if (p === "fb") return "facebook";
+        if (p === "ig") return "instagram";
+        if (p === "youtube") return "youtube"; // ✅ ADD THIS
+        return p; // twitter, linkedin stay the same
+      });
 
     if (selectedPlatforms.length === 0) {
       alert("❌ Select at least one platform");
+      return;
+    }
+
+    // ✅ Validate YouTube for video only
+    if (selectedPlatforms.includes("youtube") && !editingPost.videoUrl) {
+      alert("❌ YouTube requires a video. This post has no video.");
       return;
     }
 
@@ -129,11 +147,23 @@ function SchedulePost() {
           .split(/[,\s]+/)
           .filter(tag => tag.trim())
           .map(tag => tag.replace("#", "")),
-        // Keep original media
         type: editingPost.type,
         image: editingPost.image,
         videoUrl: editingPost.videoUrl,
         selectedPages: editingPost.selectedPages,
+        pageId: editingPost.pageId,
+
+        // ✅ ADD: YouTube fields if YouTube is selected and has video
+        ...(selectedPlatforms.includes("youtube") && editingPost.videoUrl && {
+          youtubeTitle: editForm.caption.substring(0, 100),
+          youtubeDescription: editForm.caption,
+          youtubeTags: editForm.hashtags
+            .split(/[,\s]+/)
+            .filter(tag => tag.trim())
+            .map(tag => tag.replace("#", "")),
+          youtubePrivacy: "public",
+          youtubeCategory: "22"
+        })
       };
 
       await api.put(`/user/schedule-post/${editingPost._id}`, payload);
@@ -150,7 +180,6 @@ function SchedulePost() {
     }
   }
 
-  // ✅ NEW: Duplicate post (for changing media)
   function handleDuplicate(post) {
     localStorage.setItem("duplicatePost", JSON.stringify({
       caption: post.caption,
@@ -160,6 +189,7 @@ function SchedulePost() {
         ig: post.platform?.includes("instagram") || false,
         twitter: post.platform?.includes("twitter") || false,
         linkedin: post.platform?.includes("linkedin") || false,
+        youtube: post.platform?.includes("youtube") || false // ✅ Already added
       }
     }));
     
@@ -178,7 +208,6 @@ function SchedulePost() {
     }
   }
 
-  // ... (keep existing drafts functions)
   async function loadDrafts() {
     const localDrafts = JSON.parse(localStorage.getItem("postDrafts") || "[]");
     setDrafts(localDrafts);
@@ -268,7 +297,6 @@ function SchedulePost() {
         </button>
       </div>
 
-      {/* ✅ SCHEDULED POSTS TAB */}
       {activeTab === "scheduled" && (
         <div className="posts-container">
           <button 
@@ -320,13 +348,13 @@ function SchedulePost() {
                           {platform === "facebook" && "👍"}
                           {platform === "instagram" && "📷"}
                           {platform === "linkedin" && "💼"}
+                          {platform === "youtube" && "📺"} {/* ✅ FIXED: Changed from 💼 to 📺 */}
                           {" " + platform.charAt(0).toUpperCase() + platform.slice(1)}
                         </span>
                       ))}
                     </div>
                   </div>
 
-                  {/* ✅ UPDATED ACTION BUTTONS */}
                   <div className="card-actions">
                     {post.status === "scheduled" ? (
                       <>
@@ -367,7 +395,6 @@ function SchedulePost() {
         </div>
       )}
 
-      {/* ✅ DRAFTS TAB (unchanged) */}
       {activeTab === "drafts" && (
         <div className="posts-container">
           <button 
@@ -404,6 +431,7 @@ function SchedulePost() {
                         {draft.platforms?.ig && <span>📸</span>}
                         {draft.platforms?.twitter && <span>🐦</span>}
                         {draft.platforms?.linkedin && <span>💼</span>}
+                        {draft.platforms?.youtube && <span>📺</span>} {/* ✅ ADD */}
                       </div>
                     </div>
                   </div>
@@ -429,7 +457,7 @@ function SchedulePost() {
         </div>
       )}
 
-      {/* ✅ EDIT MODAL */}
+      {/* ✅ EDIT MODAL WITH YOUTUBE */}
       {showEditModal && editingPost && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
@@ -444,7 +472,7 @@ function SchedulePost() {
             </div>
 
             <div className="modal-body">
-              {/* Media Preview (read-only) */}
+              {/* Media Preview */}
               <div className="edit-media-preview">
                 <label style={{ fontSize: "14px", fontWeight: "600", color: "#666", marginBottom: "8px", display: "block" }}>
                   📸 Media (cannot be changed - use Duplicate instead)
@@ -536,6 +564,7 @@ function SchedulePost() {
               <div className="form-group">
                 <label>📱 Platforms *</label>
                 <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                  {/* Facebook */}
                   <label style={{ 
                     display: "flex", 
                     alignItems: "center", 
@@ -556,6 +585,7 @@ function SchedulePost() {
                     <span>👍 Facebook</span>
                   </label>
 
+                  {/* Instagram */}
                   <label style={{ 
                     display: "flex", 
                     alignItems: "center", 
@@ -576,6 +606,7 @@ function SchedulePost() {
                     <span>📷 Instagram</span>
                   </label>
 
+                  {/* Twitter */}
                   <label style={{ 
                     display: "flex", 
                     alignItems: "center", 
@@ -596,6 +627,7 @@ function SchedulePost() {
                     <span>🐦 Twitter</span>
                   </label>
 
+                  {/* LinkedIn */}
                   <label style={{ 
                     display: "flex", 
                     alignItems: "center", 
@@ -615,7 +647,37 @@ function SchedulePost() {
                     />
                     <span>💼 LinkedIn</span>
                   </label>
+
+                  {/* ✅ YouTube Checkbox */}
+                  <label style={{ 
+                    display: "flex", 
+                    alignItems: "center", 
+                    gap: "8px",
+                    padding: "10px 16px",
+                    borderRadius: "8px",
+                    border: `2px solid ${editForm.platforms.youtube ? "#FF0000" : "#ddd"}`,
+                    backgroundColor: editForm.platforms.youtube ? "#ffe7e7" : "white",
+                    cursor: editingPost.videoUrl ? "pointer" : "not-allowed",
+                    opacity: editingPost.videoUrl ? 1 : 0.5,
+                    transition: "all 0.2s"
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={editForm.platforms.youtube}
+                      onChange={() => handlePlatformToggle("youtube")}
+                      disabled={!editingPost.videoUrl}
+                      style={{ width: "18px", height: "18px" }}
+                    />
+                    <span>📺 YouTube</span>
+                  </label>
                 </div>
+
+                {/* ✅ YouTube warning if no video */}
+                {!editingPost.videoUrl && (
+                  <small style={{ color: "#FF0000", fontSize: "12px", display: "block", marginTop: "8px" }}>
+                    ⚠️ YouTube requires a video. This post has no video.
+                  </small>
+                )}
               </div>
 
               {/* Hashtags */}

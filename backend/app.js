@@ -31,7 +31,7 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cors({ origin: 
-  [process.env.FRONTEND_URL, "http://localhost:5173", 'http://localhost:5174',"http://localhost:8006",'https://tgsanemedia.netlify.app',"https://localhost:5174"] 
+  [process.env.FRONTEND_URL, "http://localhost:5173","https://localhost:5175",'http://localhost:5174',"http://localhost:8006",'https://tgsanemedia.netlify.app',"https://localhost:5174"] 
 ,credentials: true
 }));
 

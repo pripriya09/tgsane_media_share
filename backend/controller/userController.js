@@ -17,25 +17,48 @@ import {postToLinkedInHelper} from "../utils/linkedinService.js"
 const FB_API_VERSION = "v24.0";
 
 
-
 async function saveToGallery(userId, url, type, originalName = "Posted Media") {
   try {
+    // ✅ CHECK: Is this a shared media URL?
+    const isSharedMedia = await MediaGallery.findOne({ 
+      url: url, 
+      isShared: true 
+    });
+
+    if (isSharedMedia) {
+      console.log("📌 This is shared media, not saving duplicate");
+      return isSharedMedia;
+    }
+
+    // ✅ CHECK: Does user already have this exact URL?
+    const userHasIt = await MediaGallery.findOne({ 
+      userId: userId,
+      url: url 
+    });
+
+    if (userHasIt) {
+      console.log("📌 User already has this media, not saving duplicate");
+      return userHasIt;
+    }
+
+    // Only save if it's truly NEW
     const mediaItem = await MediaGallery.create({
       userId,
       type,
       url,
       originalName,
-      cloudinaryId: url.split('/').pop().split('.')[0], // Extract ID from URL
+      publicId: url.split('/').pop().split('.')[0],
+      isShared: false,
+      uploadedAt: new Date()
     });
-    console.log("✅ Auto-saved to gallery:", mediaItem._id);
+    
+    console.log("✅ Auto-saved NEW media to gallery:", mediaItem._id);
     return mediaItem;
   } catch (err) {
     console.error("⚠️ Failed to auto-save to gallery:", err.message);
-    // Don't throw - posting is more important than gallery save
     return null;
   }
 }
-
 
 export const getUserProfile = async (req, res) => {
   try {
@@ -122,12 +145,174 @@ export const getUserProfile = async (req, res) => {
 
 
 
+async function refreshFacebookPageToken(pageId, currentToken) {
+  try {
+    console.log(`🔄 Attempting to refresh token for page ${pageId}...`);
+    
+    const tokenResponse = await axios.get(
+      `https://graph.facebook.com/${FB_API_VERSION}/oauth/access_token`,
+      {
+        params: {
+          grant_type: 'fb_exchange_token',
+          client_id: process.env.FACEBOOK_APP_ID,
+          client_secret: process.env.FACEBOOK_APP_SECRET,
+          fb_exchange_token: currentToken
+        }
+      }
+    );
+
+    const newToken = tokenResponse.data.access_token;
+    console.log(`✅ Token refreshed successfully for page ${pageId}`);
+    return newToken;
+    
+  } catch (error) {
+    console.error(`❌ Token refresh failed for page ${pageId}:`, error.response?.data || error.message);
+    throw new Error('Token refresh failed. Please reconnect Facebook.');
+  }
+}
+
+/**
+ * Execute Facebook Post (all types)
+ */
+async function executeFacebookPost(pageId, pageAccessToken, type, title, image, videoUrl, items, videoBase64) {
+  if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.length <= 10) {
+    const attached_media = [];
+    for (const item of items) {
+      if (item.type === "image") {
+        const photoRes = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/photos`, {
+          method: "POST",
+          body: new URLSearchParams({
+            url: item.url,
+            access_token: pageAccessToken,
+            published: "false"
+          })
+        });
+        const photoJson = await photoRes.json();
+        if (photoJson.error) throw { response: { data: photoJson } };
+        if (photoJson.id) attached_media.push({ media_fbid: photoJson.id });
+      } 
+      else if (item.type === "video") {
+        const videoRes = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/videos`, {
+          method: "POST",
+          body: new URLSearchParams({
+            file_url: item.url,
+            access_token: pageAccessToken,
+            published: "false"
+          })
+        });
+        const videoJson = await videoRes.json();
+        if (videoJson.error) throw { response: { data: videoJson } };
+        if (videoJson.id) attached_media.push({ media_fbid: videoJson.id });
+      }
+    }
+
+    const fbResp = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/feed`, {
+      method: "POST",
+      body: new URLSearchParams({
+        message: title || "Check out my carousel!",
+        attached_media: JSON.stringify(attached_media),
+        access_token: pageAccessToken
+      })
+    });
+    const fbJson = await fbResp.json();
+    if (fbJson.error) throw { response: { data: fbJson } };
+    return fbJson;
+  }
+  else if (type === "image") {
+    const resp = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/photos`, {
+      method: "POST",
+      body: new URLSearchParams({
+        url: image,
+        caption: title || "",
+        access_token: pageAccessToken
+      })
+    });
+    const json = await resp.json();
+    if (json.error) throw { response: { data: json } };
+    return json;
+  } 
+  else if (type === "video") {
+    let video = videoUrl;
+    if (videoBase64) {
+      const buff = Buffer.from(videoBase64, "base64");
+      const up = await uploadVideoToCloudinaryFromBuffer(buff, `video-${Date.now()}`);
+      video = up.secure_url;
+    }
+    if (!video) {
+      throw { response: { data: { error: { message: "No video URL" } } } };
+    }
+    const resp = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/videos`, {
+      method: "POST",
+      body: new URLSearchParams({
+        file_url: video,
+        description: title || "",
+        access_token: pageAccessToken
+      })
+    });
+    const json = await resp.json();
+    if (json.error) throw { response: { data: json } };
+    return json;
+  }
+}
+
+
+async function postToFacebookWithRetry(pageId, pageAccessToken, type, title, image, videoUrl, items, userId, videoBase64) {
+  try {
+    // First attempt
+    return await executeFacebookPost(pageId, pageAccessToken, type, title, image, videoUrl, items, videoBase64);
+  } catch (error) {
+    // Check if it's a token expiration error
+    const errorCode = error.response?.data?.error?.code;
+    const errorSubcode = error.response?.data?.error?.error_subcode;
+    
+    if (errorCode === 190 && (errorSubcode === 463 || errorSubcode === 467)) {
+      console.log("🔄 Facebook token expired, attempting refresh...");
+      
+      try {
+        // Refresh token
+        const newToken = await refreshFacebookPageToken(pageId, pageAccessToken);
+        
+        // Update user's page token in database
+        const user = await User.findById(userId);
+        const pageIndex = user.pages.findIndex(p => p.pageId === pageId);
+        if (pageIndex !== -1) {
+          user.pages[pageIndex].pageAccessToken = newToken;
+          await user.save();
+          console.log("✅ Token updated in database");
+        }
+        
+        // Retry with new token
+        console.log("🔄 Retrying Facebook post with refreshed token...");
+        const result = await executeFacebookPost(pageId, newToken, type, title, image, videoUrl, items, videoBase64);
+        return { ...result, tokenRefreshed: true };
+        
+      } catch (refreshError) {
+        console.error("❌ Token refresh failed:", refreshError);
+        throw new Error("Facebook session expired. Please reconnect your account.");
+      }
+    } else {
+      // Other errors, just throw
+      throw error;
+    }
+  }
+}
+
+
 
 
 export async function connectFacebook(req, res) {
   try {
     const { userAccessToken, userId } = req.body;
     if (!userAccessToken || !userId) return res.status(400).json({ error: "Missing token or userId" });
+
+    // ✅ NEW: Verify user exists first
+    const existingUser = await User.findById(userId);
+    if (!existingUser) {
+      console.error('❌ User not found:', userId);
+      return res.status(404).json({ error: "User not found" });
+    }
+    console.log('✅ User verified:', existingUser.username);
+    // ✅ END NEW CODE
 
     const pagesUrl = `https://graph.facebook.com/${FB_API_VERSION}/me/accounts?access_token=${userAccessToken}&fields=name,access_token,instagram_business_account`;
     const pagesResp = await fetch(pagesUrl);
@@ -144,7 +329,6 @@ export async function connectFacebook(req, res) {
       if (p.instagram_business_account?.id) {
         instagramBusinessId = p.instagram_business_account.id;
         
-        // ✅ IMPROVED: Fetch Instagram profile with better error handling
         try {
           const igUrl = `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}?fields=username,name,profile_picture_url&access_token=${p.access_token}`;
           const igResp = await fetch(igUrl);
@@ -168,23 +352,19 @@ export async function connectFacebook(req, res) {
         pageAccessToken: p.access_token,
         instagramBusinessId,
         instagramUsername: instagramUsername || null,
-        instagramProfilePicture: instagramProfilePicture || null,  // ✅ NEW: Save profile pic too
+        instagramProfilePicture: instagramProfilePicture || null,
       });
     }
 
-    // SAVE TO USER IN DB
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { 
-        $set: { 
-          pages: enrichedPages,
-          facebookConnected: true
-        } 
-      },
-      { new: true }
-    );
+    // ✅ CHANGED: Use findById + save instead of findByIdAndUpdate
+    const user = existingUser; // Use the already-fetched user
+    user.pages = enrichedPages;
+    user.facebookConnected = true;
+    await user.save();
 
-    if (!user) return res.status(404).json({ error: "User not found" });
+    // ✅ NEW: Add delay to ensure database write completes
+    await new Promise(resolve => setTimeout(resolve, 500));
+    // ✅ END NEW CODE
 
     console.log(`✅ Saved ${enrichedPages.length} pages for user ${userId}`);
     console.log(`📊 Full page data:`, JSON.stringify(enrichedPages, null, 2));
@@ -194,10 +374,9 @@ export async function connectFacebook(req, res) {
       pageName: p.pageName,
       instagramBusinessId: p.instagramBusinessId,
       instagramUsername: p.instagramUsername,
-      instagramProfilePicture: p.instagramProfilePicture,  // ✅ NEW: Include profile pic
+      instagramProfilePicture: p.instagramProfilePicture,
     }));
 
-    // ✅ FIXED: Better success message for App Review!
     const hasInstagram = enrichedPages.some(page => page.instagramBusinessId);
     if (hasInstagram) {
       const igCount = enrichedPages.filter(p => p.instagramBusinessId).length;
@@ -208,13 +387,14 @@ export async function connectFacebook(req, res) {
       success: true, 
       pages: safePages, 
       facebookConnected: true,
-      instagramConnected: hasInstagram  // ✅ NEW: Explicit Instagram status
+      instagramConnected: hasInstagram
     });
   } catch (err) {
     console.error("connectFacebook error:", err);
     return res.status(500).json({ error: err.message });
   }
 }
+
 
 
 export async function getInstagramProfile(req, res) {
@@ -490,20 +670,11 @@ export async function postToChannels(req, res) {
       return res.status(400).json({ error: "Page not connected" });
     }
 
-    const results = { fb: null, ig: null, twitter: null, linkedin: null };
+    const results = { fb: null, ig: null, twitter: null, linkedin: null ,youtube: null };
+
+    
     const pageAccessToken = page?.pageAccessToken;
     const instagramBusinessId = page?.instagramBusinessId;
-
-
-
-    // const user = await User.findById(userId);
-    // if (!user) return res.status(404).json({ error: "User not found" });
-
-    // const page = (user.pages || []).find(p => String(p.pageId) === String(pageId));
-    // if (!page) return res.status(400).json({ error: "Page not connected" });
-
-    // const results = { fb: null, ig: null };
-    // const { pageAccessToken, instagramBusinessId } = page;
 
     // Helper: retry publish (handles socket hang-ups)
     const publishWithRetry = async (creationId, maxRetries = 3) => {
@@ -528,190 +699,135 @@ export async function postToChannels(req, res) {
       }
     };
 
-    // ==================== FACEBOOK POST ====================
+    // ==================== FACEBOOK POST (✅ UPDATED WITH TOKEN REFRESH) ====================
     if (postToFB && pageAccessToken) {
-      if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.length <= 10) {
-        const attached_media = [];
-        for (const item of items) {
-          if (item.type === "image") {
-            const photoRes = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/photos`, {
-              method: "POST",
-              body: new URLSearchParams({
-                url: item.url,
-                access_token: pageAccessToken,
-                published: "false"   // Important: don't publish yet
-              })
-            });
-            const photoJson = await photoRes.json();
-            if (photoJson.id) {
-              attached_media.push({ media_fbid: photoJson.id });
-            }
-          } 
-          else if (item.type === "video") {
-            const videoRes = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/videos`, {
-              method: "POST",
-              body: new URLSearchParams({
-                file_url: item.url,
-                access_token: pageAccessToken,
-                published: "false"
-              })
-            });
-            const videoJson = await videoRes.json();
-            if (videoJson.id) {
-              attached_media.push({ media_fbid: videoJson.id });
-            }
-          }
+      try {
+        // ✅ CHANGED: Use the retry helper function
+        const fbResult = await postToFacebookWithRetry(
+          pageId, 
+          pageAccessToken, 
+          type, 
+          title, 
+          image, 
+          videoUrl, 
+          items, 
+          userId,
+          req.body.videoBase64
+        );
+        
+        results.fb = fbResult;
+        
+        // ✅ NEW: Log if token was refreshed
+        if (fbResult.tokenRefreshed) {
+          console.log("✅ Facebook post succeeded after token refresh");
         }
-
-        const fbResp = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/feed`, {
-          method: "POST",
-          body: new URLSearchParams({
-            message: title || "Check out my carousel!",
-            attached_media: JSON.stringify(attached_media),
-            access_token: pageAccessToken
-          })
-        });
-        const fbJson = await fbResp.json();
-        results.fb = fbJson.error ? { error: fbJson.error } : fbJson;
-      }
-
-      
-      else if (type === "image") {
-        const resp = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/photos`, {
-          method: "POST",
-          body: new URLSearchParams({
-            url: image,
-            caption: title || "",
-            access_token: pageAccessToken
-          })
-        });
-        const json = await resp.json();
-        results.fb = json.error ? { error: json.error } : json;
-      } 
-      else if (type === "video") {
-        let video = videoUrl; 
-        if (req.body.videoBase64) {
-          const buff = Buffer.from(req.body.videoBase64, "base64");
-          const up = await uploadVideoToCloudinaryFromBuffer(buff, `video-${Date.now()}`);
-          video = up.secure_url; 
-        }
-        if (!video) {
-          results.fb = { error: { message: "No video URL" } };
-        } else {
-          const resp = await fetch(`https://graph.facebook.com/${FB_API_VERSION}/${pageId}/videos`, {
-            method: "POST",
-            body: new URLSearchParams({
-              file_url: video,  // ← Use optimized video URL here
-              description: title || "",
-              access_token: pageAccessToken
-            })
-          });
-          const json = await resp.json();
-          results.fb = json.error ? { error: json.error } : json;
-        }
+        
+      } catch (fbError) {
+        console.error("❌ Facebook post failed:", fbError.message);
+        results.fb = { 
+          error: fbError.response?.data?.error || fbError.message || "Facebook post failed",
+          needsReconnect: fbError.message?.includes("reconnect")
+        };
       }
     }
+    // ✅ END CHANGED SECTION
 
-    // ==================== INSTAGRAM POST ====================
+    // ==================== INSTAGRAM POST (UNCHANGED) ====================
     if (postToIG && instagramBusinessId && pageAccessToken) {
 
       // CAROUSEL POST (IG)
-     // INSTAGRAM CAROUSEL — FINAL WORKING VERSION (DEC 2025)
-if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.length <= 10) {
-  try {
-    const childIds = [];
-    for (const item of items) {
-      const isVideo = item.resource_type === "video" || item.type === "video";
-      const payload = new URLSearchParams({
-        caption: title || "",
-        is_carousel_item: "true",
-        access_token: pageAccessToken,
-      });
-  
-      if (isVideo) {
-        payload.append("media_type", "REELS");
-        payload.append("video_url", item.url);
-        payload.append("share_to_feed", "true");
-      } else {
-        payload.append("image_url", item.url);
+      // INSTAGRAM CAROUSEL — FINAL WORKING VERSION (DEC 2025)
+      if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.length <= 10) {
+        try {
+          const childIds = [];
+          for (const item of items) {
+            const isVideo = item.resource_type === "video" || item.type === "video";
+            const payload = new URLSearchParams({
+              caption: title || "",
+              is_carousel_item: "true",
+              access_token: pageAccessToken,
+            });
+      
+            if (isVideo) {
+              payload.append("media_type", "REELS");
+              payload.append("video_url", item.url);
+              payload.append("share_to_feed", "true");
+            } else {
+              payload.append("image_url", item.url);
+            }
+      
+            const resp = await fetch(
+              `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}/media`,
+              { method: "POST", body: payload }
+            );
+            const json = await resp.json();
+      
+            if (json.error) {
+              console.error("Child container failed:", json.error);
+              throw new Error(`Child failed: ${json.error.message}`);
+            }
+            childIds.push(json.id);
+          }
+      
+          console.log("Child IDs:", childIds);
+
+          // Validate aspect ratios match
+          const aspectRatios = items.map(item => {
+            // You'd need to get actual dimensions from Cloudinary
+            return item.aspectRatio || "1:1";
+          });
+          
+          const allSame = aspectRatios.every(ar => ar === aspectRatios[0]);
+          if (!allSame) {
+            return res.status(400).json({ 
+              error: "All carousel items must have the same aspect ratio" 
+            });
+          }
+          
+          // Validate max 10 items
+          if (items.length > 10) {
+            return res.status(400).json({ 
+              error: "Maximum 10 items allowed in carousel" 
+            });
+          }
+      
+          // Create parent carousel
+          const carouselPayload = new URLSearchParams({
+            media_type: "CAROUSEL",
+            caption: title || "Amazing carousel!",
+            children: childIds.join(","),
+            access_token: pageAccessToken,
+          });
+      
+          const carouselResp = await fetch(
+            `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}/media`,
+            { method: "POST", body: carouselPayload }
+          );
+          const carouselJson = await carouselResp.json();
+      
+          if (carouselJson.error) throw carouselJson.error;
+      
+          // Poll status
+          const poll = await pollIgCreationStatus(carouselJson.id, pageAccessToken);
+          if (!poll.ok) throw poll.error;
+      
+          // Publish
+          const publishJson = await publishWithRetry(carouselJson.id);
+          results.ig = publishJson.error
+            ? { error: publishJson.error }
+            : { id: publishJson.id, type: "carousel" };
+      
+          // IMPORTANT: no return here, let it continue to DB save
+      
+        } catch (err) {
+          console.error("Carousel error:", err);
+          results.ig = { error: err.message || "Carousel failed" };
+          // IMPORTANT: no return here either
+        }
       }
-  
-      const resp = await fetch(
-        `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}/media`,
-        { method: "POST", body: payload }
-      );
-      const json = await resp.json();
-  
-      if (json.error) {
-        console.error("Child container failed:", json.error);
-        throw new Error(`Child failed: ${json.error.message}`);
-      }
-      childIds.push(json.id);
-    }
-  
-    console.log("Child IDs:", childIds);
-
-
-  // Validate aspect ratios match
-  const aspectRatios = items.map(item => {
-    // You'd need to get actual dimensions from Cloudinary
-    return item.aspectRatio || "1:1";
-  });
-  
-  const allSame = aspectRatios.every(ar => ar === aspectRatios[0]);
-  if (!allSame) {
-    return res.status(400).json({ 
-      error: "All carousel items must have the same aspect ratio" 
-    });
-  }
-  
-  // Validate max 10 items
-  if (items.length > 10) {
-    return res.status(400).json({ 
-      error: "Maximum 10 items allowed in carousel" 
-    });
-  }
-
-
-
-  
-    // Create parent carousel
-    const carouselPayload = new URLSearchParams({
-      media_type: "CAROUSEL",
-      caption: title || "Amazing carousel!",
-      children: childIds.join(","),
-      access_token: pageAccessToken,
-    });
-  
-    const carouselResp = await fetch(
-      `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}/media`,
-      { method: "POST", body: carouselPayload }
-    );
-    const carouselJson = await carouselResp.json();
-  
-    if (carouselJson.error) throw carouselJson.error;
-  
-    // Poll status
-    const poll = await pollIgCreationStatus(carouselJson.id, pageAccessToken);
-    if (!poll.ok) throw poll.error;
-  
-    // Publish
-    const publishJson = await publishWithRetry(carouselJson.id);
-    results.ig = publishJson.error
-      ? { error: publishJson.error }
-      : { id: publishJson.id, type: "carousel" };
-  
-    // IMPORTANT: no return here, let it continue to DB save
-  
-  } catch (err) {
-    console.error("Carousel error:", err);
-    results.ig = { error: err.message || "Carousel failed" };
-    // IMPORTANT: no return here either
-  }
-}
 
       // IMAGE POST
-     else if (type === "image") {
+      else if (type === "image") {
         const createResp = await fetch(
           `https://graph.facebook.com/${FB_API_VERSION}/${instagramBusinessId}/media`,
           {
@@ -728,11 +844,22 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
         if (createJson.error) {
           results.ig = { error: createJson.error };
         } else {
-          const publishJson = await publishWithRetry(createJson.id);
-          results.ig = publishJson.error ? { error: publishJson.error } : { id: publishJson.id || createJson.id };
+          // ✅ NEW: Check if container is ready before publishing
+          console.log(`⏳ Waiting for Instagram image container: ${createJson.id}`);
           
+          const poll = await pollIgCreationStatus(createJson.id, pageAccessToken, 60000); // 60 second timeout
+          
+          if (!poll.ok) {
+            console.error("❌ Image processing failed:", poll.error);
+            results.ig = { error: poll.error };
+          } else {
+            console.log("✅ Image container ready, publishing...");
+            const publishJson = await publishWithRetry(createJson.id);
+            results.ig = publishJson.error 
+              ? { error: publishJson.error } 
+              : { id: publishJson.id || createJson.id };
+          }
         }
-        
       }
 
       // VIDEO POST (REELS)
@@ -783,8 +910,7 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
       }
     }
 
-
-    // ============================== POST TO TWITTER =====================
+    // ============================== POST TO TWITTER (UNCHANGED) =====================
 
     if (postToTwitter && user.twitterConnected) {
       try {
@@ -849,106 +975,103 @@ if (type === "carousel" && Array.isArray(items) && items.length >= 2 && items.le
       }
     }
 
+    //============================POST TO LINKEDIN (UNCHANGED)
 
-    //============================POST TO LINKEDIN
-
-
-if (postToLinkedIn && user.linkedin?.connected) {
-  try {
-    console.log("📱 Preparing LinkedIn post...");
-    console.log("Type:", type);
-    console.log("Image:", image);
-    console.log("Video:", videoUrl);
-    
-    const liResult = await postToLinkedInHelper({
-      userId,
-      text: title || "",
-      imageUrl: type === "image" ? image : null, // ✅ Only send image if type is image
-      videoUrl: type === "video" ? videoUrl : null // ✅ Add video support (future)
-    });
-    
-    results.linkedin = { id: liResult.id };
-    console.log("✅ Posted to LinkedIn:", liResult.id);
-    
-  } catch (liErr) {
-    console.error("❌ LinkedIn post error:", liErr);
-    results.linkedin = {
-      error: liErr.message || "LinkedIn post failed"
-    };
-  }
-}
-
-//============================POST TO YOUTUBE =====================
-
-if (postToYouTube && user.youtubeConnected && type === "video" && videoUrl) {
-  try {
-    console.log("🎥 Preparing YouTube upload...");
-    
-    // Check if YouTube token needs refresh
-    const now = new Date();
-    if (user.youtubeTokenExpiry && user.youtubeTokenExpiry < now) {
-      console.log('🔄 YouTube token expired, refreshing...');
-      
-      // Import refresh function
-      const { google } = await import('googleapis');
-      const oauth2Client = new google.auth.OAuth2(
-        process.env.YOUTUBE_CLIENT_ID,
-        process.env.YOUTUBE_CLIENT_SECRET,
-        'https://localhost:5174/auth/youtube/callback'
-      );
-      
-      oauth2Client.setCredentials({
-        refresh_token: user.youtubeRefreshToken
-      });
-      
-      const { credentials } = await oauth2Client.refreshAccessToken();
-      
-      // Update user's tokens
-      user.youtubeAccessToken = credentials.access_token;
-      user.youtubeTokenExpiry = new Date(credentials.expiry_date);
-      await user.save();
-      console.log('✅ YouTube token refreshed');
+    if (postToLinkedIn && user.linkedin?.connected) {
+      try {
+        console.log("📱 Preparing LinkedIn post...");
+        console.log("Type:", type);
+        console.log("Image:", image);
+        console.log("Video:", videoUrl);
+        
+        const liResult = await postToLinkedInHelper({
+          userId,
+          text: title || "",
+          imageUrl: type === "image" ? image : null, // ✅ Only send image if type is image
+          videoUrl: type === "video" ? videoUrl : null // ✅ Add video support (future)
+        });
+        
+        results.linkedin = { id: liResult.id };
+        console.log("✅ Posted to LinkedIn:", liResult.id);
+        
+      } catch (liErr) {
+        console.error("❌ LinkedIn post error:", liErr);
+        results.linkedin = {
+          error: liErr.message || "LinkedIn post failed"
+        };
+      }
     }
-    
-    // Import YouTube service
-    const { uploadVideoToYouTube } = await import('../utils/youtubeService.js');
-    
-    // Upload video to YouTube
-    const ytResult = await uploadVideoToYouTube({
-      accessToken: user.youtubeAccessToken,
-      videoUrl: videoUrl,
-      title: title || "New Video Upload",
-      description: title || "",
-      tags: [],
-      privacy: "public",
-      category: "22"
-    });
-    
-    if (ytResult.success) {
-      results.youtube = { 
-        videoId: ytResult.videoId,
-        title: title || "New Video Upload",
-        url: ytResult.videoUrl
-      };
-      console.log("✅ Posted to YouTube:", ytResult.videoId);
-    } else {
-      throw new Error("YouTube upload failed");
-    }
-    
-  } catch (ytErr) {
-    console.error("❌ YouTube upload error:", ytErr);
-    results.youtube = {
-      error: ytErr.message || "YouTube upload failed"
-    };
-  }
-} else if (postToYouTube && !user.youtubeConnected) {
-  console.warn("⚠️ YouTube not connected, skipping...");
-  results.youtube = { error: "YouTube not connected" };
-} else if (postToYouTube && type !== "video") {
-  console.warn("⚠️ YouTube only accepts videos, skipping...");
-  results.youtube = { error: "YouTube only supports video uploads" };
-}
 
+    //============================POST TO YOUTUBE (UNCHANGED) =====================
+
+    if (postToYouTube && user.youtubeConnected && type === "video" && videoUrl) {
+      try {
+        console.log("🎥 Preparing YouTube upload...");
+        
+        // Check if YouTube token needs refresh
+        const now = new Date();
+        if (user.youtubeTokenExpiry && user.youtubeTokenExpiry < now) {
+          console.log('🔄 YouTube token expired, refreshing...');
+          
+          // Import refresh function
+          const { google } = await import('googleapis');
+          const oauth2Client = new google.auth.OAuth2(
+            process.env.YOUTUBE_CLIENT_ID,
+            process.env.YOUTUBE_CLIENT_SECRET,
+            'https://localhost:5174/auth/youtube/callback'
+          );
+          
+          oauth2Client.setCredentials({
+            refresh_token: user.youtubeRefreshToken
+          });
+          
+          const { credentials } = await oauth2Client.refreshAccessToken();
+          
+          // Update user's tokens
+          user.youtubeAccessToken = credentials.access_token;
+          user.youtubeTokenExpiry = new Date(credentials.expiry_date);
+          await user.save();
+          console.log('✅ YouTube token refreshed');
+        }
+        
+        // Import YouTube service
+        const { uploadVideoToYouTube } = await import('../utils/youtubeService.js');
+        
+        // Upload video to YouTube
+        const ytResult = await uploadVideoToYouTube({
+          accessToken: user.youtubeAccessToken,
+          videoUrl: videoUrl,
+          title: title || "New Video Upload",
+          description: title || "",
+          tags: [],
+          privacy: "public",
+          category: "22"
+        });
+        
+        if (ytResult.success) {
+          results.youtube = { 
+            videoId: ytResult.videoId,
+            title: title || "New Video Upload",
+            url: ytResult.videoUrl
+          };
+          console.log("✅ Posted to YouTube:", ytResult.videoId);
+        } else {
+          throw new Error("YouTube upload failed");
+        }
+        
+      } catch (ytErr) {
+        console.error("❌ YouTube upload error:", ytErr);
+        results.youtube = {
+          error: ytErr.message || "YouTube upload failed"
+        };
+      }
+    } else if (postToYouTube && !user.youtubeConnected) {
+      console.warn("⚠️ YouTube not connected, skipping...");
+      results.youtube = { error: "YouTube not connected" };
+    } else if (postToYouTube && type !== "video") {
+      console.warn("⚠️ YouTube only accepts videos, skipping...");
+      results.youtube = { error: "YouTube only supports video uploads" };
+    }
 
     const Post = (await import("../models/Post.js")).default;
 
@@ -980,11 +1103,11 @@ if (postToYouTube && user.youtubeConnected && type === "video" && videoUrl) {
       fbPostId: results.fb?.id || results.fb?.post_id || null,
       igMediaId: results.ig?.id || null,
       tweetId: results.twitter?.id || null,
-      linkedinPostId: results.linkedin?.id || null, // ✅ YouTube-specific fields
-     // ✅ YouTube-specific fields
-  youtubeVideoId: results.youtube?.videoId || null,
-  youtubeTitle: results.youtube?.title || title || null,
-  youtubeViewUrl: results.youtube?.url || null,
+      linkedinPostId: results.linkedin?.id || null,
+      // ✅ YouTube-specific fields
+      youtubeVideoId: results.youtube?.videoId || null,
+      youtubeTitle: results.youtube?.title || title || null,
+      youtubeViewUrl: results.youtube?.url || null,
       
       status: "posted",
       postedAt: new Date()
@@ -1016,7 +1139,6 @@ if (postToYouTube && user.youtubeConnected && type === "video" && videoUrl) {
     }
 
     console.log(savedToGallery ? "✅ Media saved to gallery" : "ℹ️ No media to save");
-
 
     return res.json({
       success: true,
@@ -1409,17 +1531,36 @@ export async function deleteScheduledPost(req, res) {
 //----------------------------gallary uploded
 
 
+// ✅ GET MEDIA GALLERY (includes shared + personal media)
 export const getMediaGallery = async (req, res) => {
   try {
     const userId = req.user.userId || req.user._id;
     console.log("📋 Getting gallery for user:", userId);
     
-    const media = await MediaGallery.find({ userId })
-      .sort({ createdAt: -1 })
+    // Get user's personal media (NOT shared)
+    const userMedia = await MediaGallery.find({ 
+      userId,
+      isShared: { $ne: true } // Exclude shared media
+    })
+      .sort({ uploadedAt: -1 })
       .lean();
     
-    console.log(`✅ Found ${media.length} media items`);
-    return res.json({ media });
+    // Get all shared media from admin
+    const sharedMedia = await MediaGallery.find({ 
+      isShared: true 
+    })
+      .sort({ uploadedAt: -1 })
+      .lean();
+    
+    // Combine: shared media first, then user's personal media
+    const allMedia = [...sharedMedia, ...userMedia];
+    
+    console.log(`✅ Found ${sharedMedia.length} shared + ${userMedia.length} personal = ${allMedia.length} total items`);
+    
+    return res.json({ 
+      success: true,
+      media: allMedia 
+    });
     
   } catch (err) {
     console.error("❌ getMediaGallery error:", err);
@@ -1427,6 +1568,8 @@ export const getMediaGallery = async (req, res) => {
   }
 };
 
+
+// ✅ UPLOAD MEDIA TO GALLERY (personal media only)
 export const uploadMediaToGallery = async (req, res) => {
   try {
     const userId = req.user.userId || req.user._id;
@@ -1444,7 +1587,7 @@ export const uploadMediaToGallery = async (req, res) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         { 
           resource_type: type, 
-          folder: "media-gallery",
+          folder: `user-media/${userId}`, // User-specific folder
           public_id: `gallery-${userId}-${Date.now()}`
         },
         (err, r) => {
@@ -1465,7 +1608,11 @@ export const uploadMediaToGallery = async (req, res) => {
       type,
       url: result.secure_url,
       originalName: req.file.originalname,
-      cloudinaryId: result.public_id,
+      publicId: result.public_id,
+      size: req.file.size || 0,
+      format: result.format || '',
+      isShared: false, // ✅ User uploads are NOT shared
+      uploadedAt: new Date()
     });
 
     console.log("✅ Saved to DB:", mediaItem._id);
@@ -1477,12 +1624,14 @@ export const uploadMediaToGallery = async (req, res) => {
   }
 };
 
+
+// ✅ DELETE MEDIA FROM GALLERY (users can only delete their own non-shared media)
 export const deleteMediaGallery = async (req, res) => {
   try {
     const userId = req.user.userId || req.user._id;
     const { id } = req.params;
     
-    const media = await MediaGallery.findOneAndDelete({
+    const media = await MediaGallery.findOne({
       _id: id,
       userId
     });
@@ -1491,10 +1640,32 @@ export const deleteMediaGallery = async (req, res) => {
       return res.status(404).json({ error: "Media not found" });
     }
 
-    await cloudinary.uploader.destroy(media.cloudinaryId);
-    console.log("✅ Media deleted");
+    // ✅ PREVENT DELETION OF SHARED MEDIA
+    if (media.isShared) {
+      return res.status(403).json({ 
+        error: "Cannot delete shared media. Contact admin to remove it." 
+      });
+    }
+
+    // Delete from Cloudinary
+    if (media.publicId) {
+      try {
+        await cloudinary.uploader.destroy(media.publicId, {
+          resource_type: media.type === 'video' ? 'video' : 'image'
+        });
+        console.log("✅ Deleted from Cloudinary:", media.publicId);
+      } catch (cloudErr) {
+        console.error("⚠️ Cloudinary delete failed:", cloudErr.message);
+        // Continue anyway - DB deletion is more important
+      }
+    }
+
+    // Delete from database
+    await MediaGallery.findByIdAndDelete(id);
+    console.log("✅ Media deleted from DB");
     
-    return res.json({ success: true });
+    return res.json({ success: true, message: "Media deleted" });
+    
   } catch (err) {
     console.error("❌ Delete error:", err);
     return res.status(500).json({ error: err.message });

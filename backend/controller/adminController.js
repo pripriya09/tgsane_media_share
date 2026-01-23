@@ -6,7 +6,12 @@ import { signJwt } from "../utils/auth.js";
 import axios from "axios";
 import { exchangeForLongLived, getPagesForUser } from "../utils/tokenService.js";
 import { encrypt } from "../utils/cryptoStore.js";
-import Post from "../models/Post.js";  // ← ADD THIS LINE
+import Post from "../models/Post.js";  
+import MediaGallery from "../models/MediaGallery.js";
+import { v2 as cloudinary } from "cloudinary";
+
+
+
 // Existing admin login — return user._id consistently
 export async function adminLogin(req, res) {
   try {
@@ -417,5 +422,158 @@ export async function deletePost(req, res) {
   } catch (err) {
     console.error("deletePost error:", err);
     return res.status(500).json({ error: err.message });
+  }
+}
+
+
+
+
+
+// ✅ GET SHARED MEDIA (Admin only)
+export async function getSharedMedia(req, res) {
+  try {
+    // ✅ Check for both admin and superAdmin
+    const allowedRoles = ["admin", "superAdmin"];
+    if (!allowedRoles.includes(req.user.role)) {
+      console.error("❌ Access denied for role:", req.user.role);
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    const sharedMedia = await MediaGallery.find({ isShared: true })
+      .sort({ uploadedAt: -1 });
+
+    console.log(`✅ Fetched ${sharedMedia.length} shared media items`);
+
+    return res.json({ 
+      success: true, 
+      media: sharedMedia 
+    });
+  } catch (err) {
+    console.error("getSharedMedia error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+// ✅ UPLOAD SHARED MEDIA (Admin only)
+export async function uploadSharedMedia(req, res) {
+  try {
+    // ✅ Check for both admin and superAdmin
+    const allowedRoles = ["admin", "superAdmin"];
+    if (!allowedRoles.includes(req.user.role)) {
+      console.error("❌ Upload denied for user:", req.user.username);
+      console.error("❌ User role:", req.user.role);
+      return res.status(403).json({ error: "Access denied - admin role required" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    console.log("📤 Admin uploading:", req.file.originalname);
+    console.log("👤 Admin user:", req.user.username, "| Role:", req.user.role);
+    console.log("📊 File size:", (req.file.size / 1024 / 1024).toFixed(2), "MB");
+
+    // Determine if it's a video or image
+    const isVideo = req.file.mimetype.startsWith("video/");
+    
+    // Upload to Cloudinary
+    const uploadPromise = new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          resource_type: isVideo ? "video" : "image",
+          folder: "shared-media",
+          timeout: 120000, // 2 minutes timeout for large videos
+        },
+        (error, result) => {
+          if (error) {
+            console.error("❌ Cloudinary upload error:", error);
+            reject(error);
+          } else {
+            console.log("✅ Cloudinary upload success:", result.secure_url);
+            resolve(result);
+          }
+        }
+      );
+      uploadStream.end(req.file.buffer);
+    });
+
+    const result = await uploadPromise;
+
+    // Save to database with isShared flag
+    const mediaItem = new MediaGallery({
+      userId: req.user.userId, // Admin who uploaded
+      url: result.secure_url,
+      publicId: result.public_id,
+      type: isVideo ? "video" : "image",
+      originalName: req.file.originalname,
+      size: req.file.size,
+      format: result.format || req.file.mimetype.split("/")[1],
+      isShared: true, // ✅ KEY FLAG
+      uploadedAt: new Date(),
+    });
+
+    await mediaItem.save();
+
+    console.log(`✅ Saved to DB: ${mediaItem._id} - ${mediaItem.originalName}`);
+
+    return res.json({
+      success: true,
+      media: mediaItem,
+      message: "Media uploaded to shared gallery",
+    });
+  } catch (err) {
+    console.error("❌ uploadSharedMedia error:", err);
+    return res.status(500).json({ error: "Upload failed: " + err.message });
+  }
+}
+
+// ✅ DELETE SHARED MEDIA (Admin only)
+export async function deleteSharedMedia(req, res) {
+  try {
+    // ✅ Check for both admin and superAdmin
+    const allowedRoles = ["admin", "superAdmin"];
+    if (!allowedRoles.includes(req.user.role)) {
+      console.error("❌ Delete denied for role:", req.user.role);
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    const { mediaId } = req.params;
+    const media = await MediaGallery.findById(mediaId);
+
+    if (!media) {
+      return res.status(404).json({ error: "Media not found" });
+    }
+
+    if (!media.isShared) {
+      return res.status(403).json({ error: "Not a shared media item" });
+    }
+
+    console.log("🗑️ Deleting shared media:", media.originalName);
+
+    // Delete from Cloudinary
+    if (media.publicId) {
+      try {
+        await cloudinary.uploader.destroy(media.publicId, {
+          resource_type: media.type === "video" ? "video" : "image",
+        });
+        console.log(`✅ Deleted from Cloudinary: ${media.publicId}`);
+      } catch (cloudErr) {
+        console.error("⚠️ Cloudinary delete error:", cloudErr);
+        // Continue anyway to delete from DB
+      }
+    }
+
+    // Delete from database
+    await MediaGallery.findByIdAndDelete(mediaId);
+
+    console.log(`✅ Deleted shared media from DB: ${media.originalName}`);
+
+    return res.json({
+      success: true,
+      message: "Shared media deleted from all users",
+    });
+  } catch (err) {
+    console.error("❌ deleteSharedMedia error:", err);
+    return res.status(500).json({ error: "Delete failed: " + err.message });
   }
 }

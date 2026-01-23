@@ -11,6 +11,10 @@ const mediaGallerySchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  publicId: {
+    type: String,
+    default: "",
+  },
   type: {
     type: String,
     enum: ["image", "video"],
@@ -28,6 +32,10 @@ const mediaGallerySchema = new mongoose.Schema({
     type: String,
     default: "",
   },
+  isShared: {
+    type: Boolean,
+    default: false,
+  },
   uploadedAt: {
     type: Date,
     default: Date.now,
@@ -37,6 +45,7 @@ const mediaGallerySchema = new mongoose.Schema({
 // Index for faster queries
 mediaGallerySchema.index({ userId: 1, uploadedAt: -1 });
 mediaGallerySchema.index({ userId: 1, url: 1 });
+mediaGallerySchema.index({ isShared: 1, uploadedAt: -1 }); // ✅ NEW INDEX
 
 const MediaGallery = mongoose.model("MediaGallery", mediaGallerySchema);
 

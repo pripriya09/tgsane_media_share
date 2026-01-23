@@ -10,10 +10,23 @@ import {
   getUserStats,
   deleteUser,
   updateUser,
+
+  getSharedMedia,
+  uploadSharedMedia, 
+  deleteSharedMedia, 
 } from "../controller/adminController.js";
 import { ensureAuth } from "../utils/auth.js";
+import multer from "multer"; 
 
 const router = express.Router();
+
+// ✅ Configure multer for file uploads
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB limit
+});
+
 
 router.post("/register", adminRegister);
 router.post("/login", adminLogin);
@@ -25,6 +38,12 @@ router.get("/users", ensureAuth("admin"), getAllUsers);
 router.get("/user-stats", ensureAuth("admin"), getUserStats);
 router.delete("/users/:userId", ensureAuth("admin"), deleteUser);
 router.put("/users/:userId", ensureAuth("admin"), updateUser);
+
+
+// ✅ SHARED MEDIA ROUTES (Admin only)
+router.get("/shared-media", ensureAuth("admin"), getSharedMedia);
+router.post("/shared-media/upload", ensureAuth("admin"), upload.single("media"), uploadSharedMedia);
+router.delete("/shared-media/:mediaId", ensureAuth("admin"), deleteSharedMedia);
 
 export default router;
 

@@ -456,74 +456,128 @@ function LogMedia() {
       },
       {
         scope: "public_profile,email,pages_show_list,pages_read_engagement,pages_manage_posts,business_management,pages_read_user_content,instagram_basic,instagram_content_publish,",
+
+        // scope: "public_profile,email,pages_show_list,pages_read_engagement,pages_manage_posts,business_management,pages_read_user_content,instagram_basic,instagram_content_publish,pages_messaging,pages_manage_metadata,pages_manage_engagement,instagram_manage_contents,",
+
       }
     );
   };
 
-  const checkFacebookConnection = async () => {
-    try {
-      console.log('📡 Checking Facebook connection status from server...');
-      
-      const response = await api.get('/user/profile');
-      
-      if (response.data.success) {
-        const profile = response.data.profile;
-        
-        console.log('📊 Server response:', profile);
-        
-        // ✅ Get real _id from JWT token
-        const token = localStorage.getItem("ms_token");
-        const tokenPayload = JSON.parse(atob(token.split('.')[1]));
-        const realUserId = tokenPayload.userId;
-        
-        // Update user profile with server data
-        const updatedUser = {
-          _id: realUserId,
-          username: profile.username,
-          email: profile.email,
-          facebookConnected: profile.facebook?.connected || false,
-          twitterConnected: profile.twitter?.connected || false,
-          linkedInConnected: profile.linkedin?.connected || false,
-          youtubeConnected: profile.youtube?.connected || false // ✅ ADD THIS
-        };
-        
-        // Update state
-        setUserProfile(updatedUser);
-        
-        // Update localStorage with fresh data
-        localStorage.setItem("ms_user", JSON.stringify(updatedUser));
-        
-        // Update connection states
-        setTwitterConnected(profile.twitter?.connected || false);
-        setTwitterUsername(profile.twitter?.username || '');
-        
-        setLinkedInConnected(profile.linkedin?.connected || false);
-        setLinkedInName(profile.linkedin?.name || '');
-        
-        // ✅ ADD YOUTUBE STATE UPDATE
-        setYoutubeConnected(profile.youtube?.connected || false);
-        setYoutubeChannelName(profile.youtube?.channelName || '');
-        setYoutubeChannelImage(profile.youtube?.channelImage || '');
-        
-        console.log('✅ User _id:', updatedUser._id);
-        console.log('✅ Facebook connected:', updatedUser.facebookConnected);
-        console.log('✅ Twitter connected:', updatedUser.twitterConnected);
-        console.log('✅ LinkedIn connected:', updatedUser.linkedInConnected);
-        console.log('✅ YouTube connected:', updatedUser.youtubeConnected); // ✅ ADD THIS
-        
-        // Load pages if Facebook is connected
-        if (profile.facebook?.connected) {
-          await loadConnectedPages();
-        }
+// LogMedia.jsx - UPDATE YOUR checkFacebookConnection FUNCTION
 
-        if (userProfile?.facebookConnected) {
-          await loadConnectedPages();
+const checkFacebookConnection = async () => {
+  try {
+    console.log('📡 Checking Facebook connection status from server...');
+    
+    // ✅ ADD RETRY LOGIC
+    let retries = 3;
+    let profile = null;
+    
+    while (retries > 0 && !profile) {
+      try {
+        const response = await api.get('/user/profile');
+        
+        if (response.data.success && response.data.profile) {
+          profile = response.data.profile;
+          
+          // ✅ VERIFY PROFILE HAS REQUIRED FIELDS
+          if (!profile._id && !profile.id) {
+            console.warn('⚠️ Profile missing _id, retrying...', retries);
+            retries--;
+            if (retries > 0) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              continue;
+            }
+          }
+          break;
+        }
+      } catch (err) {
+        console.error(`❌ Profile fetch attempt failed (${retries} left):`, err.message);
+        retries--;
+        if (retries > 0) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
-    } catch (error) {
-      console.error('❌ Error checking Facebook connection:', error);
     }
-  };
+    
+    if (!profile) {
+      console.error('❌ Failed to load profile after retries');
+      alert('⚠️ Failed to load profile. Please refresh the page.');
+      return;
+    }
+    
+    console.log('📊 Server response:', profile);
+    
+    // ✅ Get real _id from JWT token as fallback
+    const token = localStorage.getItem("ms_token");
+    if (!token) {
+      alert('⚠️ No authentication token. Please log in again.');
+      window.location.href = '/login';
+      return;
+    }
+    
+    let realUserId;
+    try {
+      const tokenPayload = JSON.parse(atob(token.split('.')[1]));
+      realUserId = tokenPayload.userId;
+    } catch (tokenErr) {
+      console.error('Failed to parse token:', tokenErr);
+      alert('⚠️ Invalid session. Please log in again.');
+      window.location.href = '/login';
+      return;
+    }
+    
+    // Update user profile with server data
+    const updatedUser = {
+      _id: profile._id || profile.id || realUserId, // ✅ TRIPLE FALLBACK
+      username: profile.username || 'User',
+      email: profile.email || '',
+      facebookConnected: profile.facebook?.connected || false,
+      twitterConnected: profile.twitter?.connected || false,
+      linkedInConnected: profile.linkedin?.connected || false,
+      youtubeConnected: profile.youtube?.connected || false
+    };
+    
+    // ✅ VALIDATE BEFORE SETTING STATE
+    if (!updatedUser._id) {
+      console.error('❌ Could not determine user ID');
+      alert('⚠️ Session error. Please log out and log in again.');
+      return;
+    }
+    
+    // Update state
+    setUserProfile(updatedUser);
+    
+    // Update localStorage with fresh data
+    localStorage.setItem("ms_user", JSON.stringify(updatedUser));
+    
+    // Update connection states
+    setTwitterConnected(profile.twitter?.connected || false);
+    setTwitterUsername(profile.twitter?.username || '');
+    
+    setLinkedInConnected(profile.linkedin?.connected || false);
+    setLinkedInName(profile.linkedin?.name || '');
+    
+    setYoutubeConnected(profile.youtube?.connected || false);
+    setYoutubeChannelName(profile.youtube?.channelName || '');
+    setYoutubeChannelImage(profile.youtube?.channelImage || '');
+    
+    console.log('✅ User _id:', updatedUser._id);
+    console.log('✅ Facebook connected:', updatedUser.facebookConnected);
+    console.log('✅ Twitter connected:', updatedUser.twitterConnected);
+    console.log('✅ LinkedIn connected:', updatedUser.linkedInConnected);
+    console.log('✅ YouTube connected:', updatedUser.youtubeConnected);
+    
+    // Load pages if Facebook is connected
+    if (profile.facebook?.connected) {
+      await loadConnectedPages();
+    }
+    
+  } catch (error) {
+    console.error('❌ Error checking Facebook connection:', error);
+    alert('⚠️ Failed to check connection status. Please refresh the page.');
+  }
+};
 
 
   const renderPageCard = (page, idx) => {

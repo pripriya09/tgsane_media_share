@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./api";
+import "./admindashboard.css";
 
 function AdminDashboard() {
   const [users, setUsers] = useState([]);
@@ -28,9 +29,17 @@ function AdminDashboard() {
     role: "user"
   });
 
+  // ✅ SHARED MEDIA STATE
+  const [showMediaUploader, setShowMediaUploader] = useState(false);
+  const [adminMediaItems, setAdminMediaItems] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [mediaFileInputKey, setMediaFileInputKey] = useState(0);
+  const [mediaFilterType, setMediaFilterType] = useState("all");
+
   useEffect(() => {
     checkAuth();
     loadUserStats();
+    loadAdminMedia(); // ✅ Load admin media
   }, []);
 
   const checkAuth = () => {
@@ -50,6 +59,62 @@ function AdminDashboard() {
       setError("Failed to load users: " + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ✅ LOAD ADMIN SHARED MEDIA
+  const loadAdminMedia = async () => {
+    try {
+      const res = await api.get("/admin/shared-media");
+      setAdminMediaItems(res.data.media || []);
+    } catch (err) {
+      console.error("Failed to load admin media:", err);
+    }
+  };
+
+  // ✅ HANDLE ADMIN MEDIA UPLOAD
+  const handleAdminMediaUpload = async (e) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const formData = new FormData();
+      formData.append("media", file);
+
+      try {
+        setUploadProgress(0);
+        await api.post("/admin/shared-media/upload", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+          onUploadProgress: (progressEvent) => {
+            if (progressEvent.total) {
+              const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+              setUploadProgress(percent);
+            }
+          },
+        });
+      } catch (err) {
+        alert(`❌ Upload failed for ${file.name}: ` + (err.response?.data?.error || err.message));
+        return;
+      }
+    }
+
+    alert(`✅ ${files.length} file(s) uploaded to shared gallery!`);
+    loadAdminMedia();
+    setUploadProgress(0);
+    setMediaFileInputKey(prev => prev + 1);
+  };
+
+  // ✅ HANDLE DELETE ADMIN MEDIA
+  const handleDeleteAdminMedia = async (mediaId, mediaName) => {
+    if (!window.confirm(`Delete "${mediaName}" from shared gallery?\n\nThis will remove it from ALL users' galleries.`)) return;
+
+    try {
+      await api.delete(`/admin/shared-media/${mediaId}`);
+      alert("✅ Media deleted from all users!");
+      loadAdminMedia();
+    } catch (err) {
+      alert("❌ Delete failed: " + (err.response?.data?.error || err.message));
     }
   };
 
@@ -85,7 +150,6 @@ function AdminDashboard() {
         username: editUser.username,
         role: editUser.role
       };
-      // Only include password if it's not empty
       if (editUser.password) {
         updateData.password = editUser.password;
       }
@@ -123,45 +187,37 @@ function AdminDashboard() {
     return new Date(date).toLocaleDateString();
   };
 
+  // ✅ FILTER ADMIN MEDIA
+  const filteredAdminMedia = adminMediaItems.filter(item =>
+    mediaFilterType === "all" || item.type === mediaFilterType
+  );
+
   if (loading) return <div style={{ padding: 20 }}>Loading...</div>;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f5f5f5" }}>
+    <div className="admin-dashboard">
       {/* Header */}
-      <div style={{
-        background: "white",
-        padding: "20px",
-        boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center"
-      }}>
-        <h2 style={{ margin: 0 }}>👨‍💼 Admin Dashboard</h2>
-        <div style={{ display: "flex", gap: "10px" }}>
+      <div className="admin-header">
+        <h2>👨‍💼 Admin Dashboard</h2>
+        <div className="header-buttons">
           <button
             onClick={() => setShowCreateUser(true)}
-            style={{
-              padding: "10px 20px",
-              background: "#4caf50",
-              color: "white",
-              border: "none",
-              borderRadius: "6px",
-              cursor: "pointer",
-              fontWeight: "600"
-            }}
+            className="btn btn-create"
           >
             + Create User
           </button>
+          
+          {/* ✅ SHARED MEDIA BUTTON */}
+          <button
+            onClick={() => setShowMediaUploader(true)}
+            className="btn btn-media"
+          >
+            📁 Shared Media ({adminMediaItems.length})
+          </button>
+          
           <button
             onClick={handleLogout}
-            style={{
-              padding: "10px 20px",
-              background: "#f44336",
-              color: "white",
-              border: "none",
-              borderRadius: "6px",
-              cursor: "pointer"
-            }}
+            className="btn btn-logout"
           >
             Logout
           </button>
@@ -169,231 +225,141 @@ function AdminDashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div style={{ padding: "20px", display: "flex", gap: "20px", flexWrap: "wrap" }}>
-        <div style={{
-          background: "white",
-          padding: "20px",
-          borderRadius: "8px",
-          boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-          flex: "1",
-          minWidth: "200px"
-        }}>
-          <h3 style={{ margin: 0, color: "#666" }}>Total Users</h3>
-          <p style={{ fontSize: "32px", fontWeight: "bold", margin: "10px 0 0 0" }}>
-            {users.length}
-          </p>
+      <div className="stats-container">
+        <div className="stat-card">
+          <h3>Total Users</h3>
+          <p className="stat-number">{users.length}</p>
         </div>
 
-        <div style={{
-          background: "white",
-          padding: "20px",
-          borderRadius: "8px",
-          boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-          flex: "1",
-          minWidth: "200px"
-        }}>
-          <h3 style={{ margin: 0, color: "#666" }}>Total Posts</h3>
-          <p style={{ fontSize: "32px", fontWeight: "bold", margin: "10px 0 0 0" }}>
+        <div className="stat-card">
+          <h3>Total Posts</h3>
+          <p className="stat-number">
             {users.reduce((sum, u) => sum + u.postsCount, 0)}
           </p>
         </div>
 
-        <div style={{
-          background: "white",
-          padding: "20px",
-          borderRadius: "8px",
-          boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-          flex: "1",
-          minWidth: "200px"
-        }}>
-          <h3 style={{ margin: 0, color: "#666" }}>Active Users</h3>
-          <p style={{ fontSize: "32px", fontWeight: "bold", margin: "10px 0 0 0" }}>
+        <div className="stat-card">
+          <h3>Active Users</h3>
+          <p className="stat-number">
             {users.filter(u => u.facebookId).length}
           </p>
         </div>
       </div>
 
       {/* Users Table */}
-      <div style={{ padding: "20px" }}>
-        <div style={{ background: "white", borderRadius: "8px", boxShadow: "0 2px 4px rgba(0,0,0,0.1)", overflow: "hidden" }}>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ background: "#f0f0f0" }}>
-                  <th style={thStyle}>Username</th>
-                  <th style={thStyle}>Name</th>
-                  <th style={thStyle}>Role</th>
-                  <th style={thStyle}>FB Connected</th>
-                  <th style={thStyle}>Pages</th>
-                  <th style={thStyle}>Posts</th>
-                  <th style={thStyle}>Last Post</th>
-                  <th style={thStyle}>Created</th>
-                  <th style={thStyle}>Actions</th>
+      <div className="table-container">
+        <div className="table-wrapper">
+          <table className="users-table">
+            <thead>
+              <tr>
+                <th>Username</th>
+                <th>Name</th>
+                <th>Role</th>
+                <th>FB Connected</th>
+                <th>Pages</th>
+                <th>Posts</th>
+                <th>Last Post</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr key={user._id}>
+                  <td>{user.username}</td>
+                  <td>{user.name || "-"}</td>
+                  <td>
+                    <span className={`role-badge ${user.role === "admin" ? "role-admin" : ""}`}>
+                      {user.role}
+                    </span>
+                  </td>
+                  <td>
+                    {user.facebookId ? (
+                      <span className="status-yes">✓ Yes</span>
+                    ) : (
+                      <span className="status-no">✗ No</span>
+                    )}
+                  </td>
+                  <td>{user.pagesCount}</td>
+                  <td>{user.postsCount}</td>
+                  <td>{formatDate(user.lastPostAt)}</td>
+                  <td>{formatDate(user.createdAt)}</td>
+                  <td className="btn_action_flex">
+                    <button
+                      onClick={() => handleEditUser(user)}
+                      className="btn-action btn-edit"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDeleteUser(user._id, user.username)}
+                      className="btn-action btn-delete"
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {users.map((user) => (
-                  <tr key={user._id} style={{ borderBottom: "1px solid #ddd" }}>
-                    <td style={tdStyle}>{user.username}</td>
-                    <td style={tdStyle}>{user.name || "-"}</td>
-                    <td style={tdStyle}>
-                      <span style={{
-                        padding: "4px 8px",
-                        borderRadius: "12px",
-                        fontSize: "12px",
-                        background: user.role === "admin" ? "#e3f2fd" : "#f0f0f0",
-                        color: "#333",
-                        fontWeight: "600"
-                      }}>
-                        {user.role}
-                      </span>
-                    </td>
-                    <td style={tdStyle}>
-                      {user.facebookId ? (
-                        <span style={{ color: "#4caf50" }}>✓ Yes</span>
-                      ) : (
-                        <span style={{ color: "#999" }}>✗ No</span>
-                      )}
-                    </td>
-                    <td style={tdStyle}>{user.pagesCount}</td>
-                    <td style={tdStyle}>{user.postsCount}</td>
-                    <td style={tdStyle}>{formatDate(user.lastPostAt)}</td>
-                    <td style={tdStyle}>{formatDate(user.createdAt)}</td>
-                    <td style={tdStyle}>
-                      <button
-                        onClick={() => handleEditUser(user)}
-                        style={{
-                          marginRight: "5px",
-                          padding: "6px 12px",
-                          background: "#2196F3",
-                          color: "white",
-                          border: "none",
-                          borderRadius: "4px",
-                          cursor: "pointer",
-                          fontSize: "12px"
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteUser(user._id, user.username)}
-                        style={{
-                          padding: "6px 12px",
-                          background: "#f44336",
-                          color: "white",
-                          border: "none",
-                          borderRadius: "4px",
-                          cursor: "pointer",
-                          fontSize: "12px"
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
       {/* Create User Modal */}
       {showCreateUser && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          background: "rgba(0,0,0,0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000
-        }}>
-          <div style={{
-            background: "white",
-            padding: "30px",
-            borderRadius: "12px",
-            width: "100%",
-            maxWidth: "500px"
-          }}>
+        <div className="modal-overlay">
+          <div className="modal-content">
             <h3>Create New User</h3>
             <form onSubmit={handleCreateUser}>
-              <div style={{ marginBottom: "15px" }}>
-                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Name</label>
+              <div className="form-group">
+                <label>Name</label>
                 <input
                   type="text"
                   value={newUser.name}
                   onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
                   required
-                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
 
-              <div style={{ marginBottom: "15px" }}>
-                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Username</label>
+              <div className="form-group">
+                <label>Username</label>
                 <input
                   type="text"
                   value={newUser.username}
                   onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
                   required
-                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
 
-              <div style={{ marginBottom: "15px" }}>
-                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Password</label>
+              <div className="form-group">
+                <label>Password</label>
                 <input
                   type="password"
                   value={newUser.password}
                   onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
                   required
-                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
 
-              <div style={{ marginBottom: "20px" }}>
-                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Role</label>
+              <div className="form-group">
+                <label>Role</label>
                 <select
                   value={newUser.role}
                   onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
-                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 >
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>
 
-              <div style={{ display: "flex", gap: "10px" }}>
-                <button
-                  type="submit"
-                  style={{
-                    flex: 1,
-                    padding: "12px",
-                    background: "#4caf50",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontWeight: "600"
-                  }}
-                >
+              <div className="modal-buttons">
+                <button type="submit" className="btn btn-submit">
                   Create User
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowCreateUser(false)}
-                  style={{
-                    flex: 1,
-                    padding: "12px",
-                    background: "#999",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer"
-                  }}
+                  className="btn btn-cancel"
                 >
                   Cancel
                 </button>
@@ -405,88 +371,53 @@ function AdminDashboard() {
 
       {/* Edit User Modal */}
       {showEditUser && editingUser && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          background: "rgba(0,0,0,0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000
-        }}>
-          <div style={{
-            background: "white",
-            padding: "30px",
-            borderRadius: "12px",
-            width: "100%",
-            maxWidth: "500px"
-          }}>
+        <div className="modal-overlay">
+          <div className="modal-content">
             <h3>Edit User: {editingUser.username}</h3>
             <form onSubmit={handleSaveEdit}>
-              <div style={{ marginBottom: "15px" }}>
-                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Name</label>
+              <div className="form-group">
+                <label>Name</label>
                 <input
                   type="text"
                   value={editUser.name}
                   onChange={(e) => setEditUser({ ...editUser, name: e.target.value })}
                   required
-                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
 
-              <div style={{ marginBottom: "15px" }}>
-                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Username</label>
+              <div className="form-group">
+                <label>Username</label>
                 <input
                   type="text"
                   value={editUser.username}
                   onChange={(e) => setEditUser({ ...editUser, username: e.target.value })}
                   required
-                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
 
-              <div style={{ marginBottom: "15px" }}>
-                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>
-                  Password (leave empty to keep current)
-                </label>
+              <div className="form-group">
+                <label>Password (leave empty to keep current)</label>
                 <input
                   type="password"
                   value={editUser.password}
                   onChange={(e) => setEditUser({ ...editUser, password: e.target.value })}
                   placeholder="Leave empty to keep current password"
-                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 />
               </div>
 
-              <div style={{ marginBottom: "20px" }}>
-                <label style={{ display: "block", marginBottom: "5px", fontWeight: "600" }}>Role</label>
+              <div className="form-group">
+                <label>Role</label>
                 <select
                   value={editUser.role}
                   onChange={(e) => setEditUser({ ...editUser, role: e.target.value })}
-                  style={{ width: "100%", padding: "10px", border: "1px solid #ddd", borderRadius: "4px", boxSizing: "border-box" }}
                 >
                   <option value="user">User</option>
                   <option value="admin">Admin</option>
                 </select>
               </div>
 
-              <div style={{ display: "flex", gap: "10px" }}>
-                <button
-                  type="submit"
-                  style={{
-                    flex: 1,
-                    padding: "12px",
-                    background: "#2196F3",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontWeight: "600"
-                  }}
-                >
+              <div className="modal-buttons">
+                <button type="submit" className="btn btn-submit">
                   Save Changes
                 </button>
                 <button
@@ -495,15 +426,7 @@ function AdminDashboard() {
                     setShowEditUser(false);
                     setEditingUser(null);
                   }}
-                  style={{
-                    flex: 1,
-                    padding: "12px",
-                    background: "#999",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "6px",
-                    cursor: "pointer"
-                  }}
+                  className="btn btn-cancel"
                 >
                   Cancel
                 </button>
@@ -512,19 +435,134 @@ function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* ✅ SHARED MEDIA MODAL */}
+      {showMediaUploader && (
+        <div className="modal-overlay">
+          <div className="modal-content media-modal">
+            {/* Header */}
+            <div className="media-header">
+              <div>
+                <h2>📁 Shared Media Gallery</h2>
+                <p className="media-subtitle">
+                  Upload media for all users • {adminMediaItems.length} items
+                </p>
+              </div>
+              <button
+                onClick={() => setShowMediaUploader(false)}
+                className="modal-close"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Upload Section */}
+            <div className="upload-section">
+              <div className="upload-box">
+                <input
+                  key={mediaFileInputKey}
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={handleAdminMediaUpload}
+                  multiple
+                  style={{ display: "none" }}
+                  id="admin-media-upload-input"
+                />
+                <label
+                  htmlFor="admin-media-upload-input"
+                  className="upload-label"
+                >
+                  📤 Upload Media Files
+                </label>
+                <p className="upload-hint">
+                  Select images or videos • Multiple files supported
+                </p>
+
+                {uploadProgress > 0 && uploadProgress < 100 && (
+                  <div className="progress-container">
+                    <div className="progress-bar">
+                      <div
+                        className="progress-fill"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                    <p className="progress-text">
+                      Uploading... {uploadProgress}%
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="filter-tabs">
+              {["all", "image", "video"].map(type => (
+                <button
+                  key={type}
+                  onClick={() => setMediaFilterType(type)}
+                  className={`filter-tab ${mediaFilterType === type ? "active" : ""}`}
+                >
+                  {type === "all" ? "All" : type.charAt(0).toUpperCase() + type.slice(1) + "s"}
+                </button>
+              ))}
+            </div>
+
+            {/* Media Grid */}
+            <div className="media-grid-container">
+              {filteredAdminMedia.length === 0 ? (
+                <div className="empty-state">
+                  <p className="empty-title">📂 No media yet</p>
+                  <p className="empty-subtitle">
+                    Upload images or videos to share with all users
+                  </p>
+                </div>
+              ) : (
+                <div className="media-grid">
+                  {filteredAdminMedia.map((item) => (
+                    <div key={item._id} className="media-item">
+                      <div className="media-preview">
+                        {item.type === "image" ? (
+                          <img
+                            src={item.url}
+                            alt={item.originalName}
+                            className="media-thumbnail"
+                          />
+                        ) : (
+                          <video
+                            src={item.url}
+                            className="media-thumbnail"
+                          />
+                        )}
+                        <div className="media-type-badge">
+                          {item.type === "image" ? "🖼️" : "🎥"}
+                        </div>
+                      </div>
+
+                      <div className="media-info">
+                        <p className="media-name" title={item.originalName}>
+                          {item.originalName || "Untitled"}
+                        </p>
+                        <p className="media-date">
+                          {new Date(item.uploadedAt).toLocaleDateString()}
+                        </p>
+
+                        <button
+                          onClick={() => handleDeleteAdminMedia(item._id, item.originalName)}
+                          className="btn-delete-media"
+                        >
+                          🗑️ Delete from All Users
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-const thStyle = {
-  padding: "12px",
-  textAlign: "left",
-  fontWeight: "600",
-  color: "#666"
-};
-
-const tdStyle = {
-  padding: "12px"
-};
 
 export default AdminDashboard;

@@ -13,6 +13,8 @@ import LinkedInCallback from './LinkedInCallback'; // ✅ ADD THIS
 import SchedulePost from './SchedulePost';
 import MediaGallery from './MediaGallery';
 import YouTubeCallback from './YouTubeCallback';
+import PageComments from './PageComments';
+import UniversalInbox from './UniversalInbox';
 // Protected Route Component
 function ProtectedRoute({ children, requireAdmin = false }) {
   const user = JSON.parse(localStorage.getItem("ms_user") || "{}");
@@ -65,11 +67,13 @@ function AppRoutes() {
           <Route path="schedule" element={<SchedulePost />} />
           <Route path="history" element={<PostsHistory />} />
           <Route path="media-gallery" element={<MediaGallery />} />
+          <Route path="comments" element={<PageComments />} /> 
+          <Route path="inbox" element={<UniversalInbox />} /> 
         </Route>
 
         {/* Catch-all for undefined routes */}
         <Route path="*" element={<Navigate to="/login" />} />
-
+    
 
       </Routes>
 

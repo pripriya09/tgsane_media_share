@@ -1,3 +1,4 @@
+// MediaGallery.jsx - UPDATED with Server Tab
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "./api";
@@ -9,7 +10,7 @@ function MediaGallery() {
   const [error, setError] = useState("");
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [filterType, setFilterType] = useState("all");
+  const [filterType, setFilterType] = useState("all"); // "all", "server", "image", "video"
   const [fileInputKey, setFileInputKey] = useState(0);
   const navigate = useNavigate();
 
@@ -23,7 +24,6 @@ function MediaGallery() {
       setError("");
       const res = await api.get("/user/media-gallery");
       
-      // ✅ ADD DEBUG LOGS
       console.log("📦 API Response:", res.data);
       console.log("📦 Media array:", res.data.media);
       
@@ -36,6 +36,7 @@ function MediaGallery() {
       setLoading(false);
     }
   }
+
   async function handleFileUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -69,22 +70,24 @@ function MediaGallery() {
   function closeUploadModal() {
     setShowUploadModal(false);
     setUploadProgress(0);
-    setFileInputKey(prev => prev + 1); // Reset file input
+    setFileInputKey(prev => prev + 1);
   }
 
   function useMediaForPost(item) {
-    // Store in localStorage for CreatePost to pick up
     localStorage.setItem("galleryMediaForPost", JSON.stringify({
       url: item.url,
       type: item.type,
       name: item.originalName || "Gallery Media"
     }));
-    
-    // Navigate to Create Post
     navigate("/home/create");
   }
 
-  async function deleteMedia(itemId) {
+  async function deleteMedia(itemId, isShared) {
+    if (isShared) {
+      alert("⚠️ Cannot delete server media. Contact admin to remove it.");
+      return;
+    }
+
     if (!window.confirm("Delete this media from gallery?")) return;
     
     try {
@@ -96,9 +99,19 @@ function MediaGallery() {
     }
   }
 
-  const filteredMedia = mediaItems.filter(item => 
-    filterType === "all" || item.type === filterType
-  );
+  // ✅ NEW: Filter logic with server tab
+  const filteredMedia = mediaItems.filter(item => {
+    if (filterType === "all") return true;
+    if (filterType === "server") return item.isShared === true;
+    if (filterType === "image") return item.type === "image";
+    if (filterType === "video") return item.type === "video";
+    return true;
+  });
+
+  // ✅ Count media by type
+  const serverCount = mediaItems.filter(i => i.isShared === true).length;
+  const imageCount = mediaItems.filter(i => i.type === "image").length;
+  const videoCount = mediaItems.filter(i => i.type === "video").length;
 
   if (loading) {
     return (
@@ -119,40 +132,47 @@ function MediaGallery() {
         </div>
         
         <div className="gallery-controls">
-          {/* <button 
+          <button 
             className="upload-btn primary"
             onClick={() => setShowUploadModal(true)}
           >
             ➕ Upload Media
-          </button> */}
-          
-          <div className="filter-tabs">
-            <button 
-              className={`filter-tab ${filterType === "all" ? "active" : ""}`}
-              onClick={() => setFilterType("all")}
-            >
-              All ({mediaItems.length})
-            </button>
-            <button 
-              className={`filter-tab ${filterType === "image" ? "active" : ""}`}
-              onClick={() => setFilterType("image")}
-            >
-              🖼️ Images 
-              <span className="count">
-                ({mediaItems.filter(i => i.type === "image").length})
-              </span>
-            </button>
-            <button 
-              className={`filter-tab ${filterType === "video" ? "active" : ""}`}
-              onClick={() => setFilterType("video")}
-            >
-              🎥 Videos 
-              <span className="count">
-                ({mediaItems.filter(i => i.type === "video").length})
-              </span>
-            </button>
-          </div>
+          </button>
         </div>
+      </div>
+
+      {/* ✅ NEW: Filter tabs with Server tab */}
+      <div className="filter-tabs-container">
+        <button 
+          className={`filter-tab ${filterType === "all" ? "active" : ""}`}
+          onClick={() => setFilterType("all")}
+        >
+          All ({mediaItems.length})
+        </button>
+        
+        <button 
+          className={`filter-tab ${filterType === "server" ? "active" : ""}`}
+          onClick={() => setFilterType("server")}
+        >
+          🖥️ Server 
+          <span className="count">({serverCount})</span>
+        </button>
+
+        <button 
+          className={`filter-tab ${filterType === "image" ? "active" : ""}`}
+          onClick={() => setFilterType("image")}
+        >
+          🖼️ Images 
+          <span className="count">({imageCount})</span>
+        </button>
+
+        <button 
+          className={`filter-tab ${filterType === "video" ? "active" : ""}`}
+          onClick={() => setFilterType("video")}
+        >
+          🎥 Videos 
+          <span className="count">({videoCount})</span>
+        </button>
       </div>
 
       {error && (
@@ -164,20 +184,42 @@ function MediaGallery() {
 
       {filteredMedia.length === 0 ? (
         <div className="empty-gallery">
-          <div className="empty-icon">🖼️</div>
-          <h3>Your Media Gallery</h3>
-          <p>Upload images and videos to save them here for easy reuse in posts</p>
-          <button 
-            className="upload-btn-empty primary" 
-            onClick={() => setShowUploadModal(true)}
-          >
-            📤 Upload First Media
-          </button>
+          <div className="empty-icon">
+            {filterType === "server" ? "🖥️" : 
+             filterType === "image" ? "🖼️" : 
+             filterType === "video" ? "🎥" : "📁"}
+          </div>
+          <h3>
+            {filterType === "server" ? "No Server Media" :
+             filterType === "image" ? "No Images" :
+             filterType === "video" ? "No Videos" :
+             "Your Media Gallery"}
+          </h3>
+          <p>
+            {filterType === "server" 
+              ? "No media uploaded by admin yet" 
+              : filterType === "all"
+              ? "Upload images and videos to save them here for easy reuse in posts"
+              : `No ${filterType}s in your gallery`}
+          </p>
+          {filterType !== "server" && (
+            <button 
+              className="upload-btn-empty primary" 
+              onClick={() => setShowUploadModal(true)}
+            >
+              📤 Upload First Media
+            </button>
+          )}
         </div>
       ) : (
         <div className="gallery-grid">
           {filteredMedia.map((item) => (
             <div key={item._id || item.id} className="media-card">
+              {/* ✅ Server Badge */}
+              {item.isShared && (
+                <div className="server-badge">🖥️ Server</div>
+              )}
+              
               <div className="media-thumb-container">
                 {item.type === "video" ? (
                   <video 
@@ -217,13 +259,13 @@ function MediaGallery() {
               </div>
               
               <div className="media-actions">
-              <button 
-    className="btn-use-icon"
-    onClick={() => useMediaForPost(item)}
-    title="Use in Post"
-  >
-    ➕
-  </button>
+                <button 
+                  className="btn-use-icon"
+                  onClick={() => useMediaForPost(item)}
+                  title="Use in Post"
+                >
+                  ➕
+                </button>
                 <div className="secondary-actions">
                   <button 
                     className="btn-share"
@@ -239,14 +281,26 @@ function MediaGallery() {
                       }
                     }}
                   >
-                     Share
+                    Share
                   </button>
-                  <button 
-                    className="btn-delete danger"
-                    onClick={() => deleteMedia(item._id || item.id)}
-                  >
-                   Delete
-                  </button>
+                  
+                  {/* ✅ Conditional Delete Button */}
+                  {item.isShared ? (
+                    <button 
+                      className="btn-delete disabled"
+                      title="Cannot delete server media"
+                      disabled
+                    >
+                      🔒 Locked
+                    </button>
+                  ) : (
+                    <button 
+                      className="btn-delete danger"
+                      onClick={() => deleteMedia(item._id || item.id, item.isShared)}
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -254,50 +308,47 @@ function MediaGallery() {
         </div>
       )}
 
- 
-{showUploadModal && (
-  <div className="modal-overlay" onClick={closeUploadModal}>
-    <div className="modal-content upload-modal" onClick={e => e.stopPropagation()}>
-      <div className="modal-header">
-        <h3>Upload to Gallery</h3>
-        <button onClick={closeUploadModal} className="modal-close">×</button>
-      </div>
-      
-      <div className="upload-area">
-        {/* ✅ FIXED: File input is ONLY inside upload-zone */}
-        <label htmlFor="gallery-file-input" className="upload-zone">
-          <input
-            id="gallery-file-input"
-            key={fileInputKey}
-            type="file"
-            accept="image/*,video/mp4,video/quicktime"
-            onChange={handleFileUpload}
-            className="file-input"
-            style={{ display: 'none' }} // ✅ Hide completely, only label is clickable
-          />
-          <div className="upload-icon">📤</div>
-          <p>Click to select image or video</p>
-          <small>Max 100MB • JPG, PNG, MP4</small>
-        </label>
-        
-        {uploadProgress > 0 && uploadProgress < 100 && (
-          <div className="progress-section">
-            <div className="progress-label">
-              Uploading... {uploadProgress}%
+      {showUploadModal && (
+        <div className="modal-overlay" onClick={closeUploadModal}>
+          <div className="modal-content upload-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Upload to Gallery</h3>
+              <button onClick={closeUploadModal} className="modal-close">×</button>
             </div>
-            <div className="progress-bar">
-              <div 
-                className="progress-fill" 
-                style={{ width: `${uploadProgress}%` }}
-              />
+            
+            <div className="upload-area">
+              <label htmlFor="gallery-file-input" className="upload-zone">
+                <input
+                  id="gallery-file-input"
+                  key={fileInputKey}
+                  type="file"
+                  accept="image/*,video/mp4,video/quicktime"
+                  onChange={handleFileUpload}
+                  className="file-input"
+                  style={{ display: 'none' }}
+                />
+                <div className="upload-icon">📤</div>
+                <p>Click to select image or video</p>
+                <small>Max 100MB • JPG, PNG, MP4</small>
+              </label>
+              
+              {uploadProgress > 0 && uploadProgress < 100 && (
+                <div className="progress-section">
+                  <div className="progress-label">
+                    Uploading... {uploadProgress}%
+                  </div>
+                  <div className="progress-bar">
+                    <div 
+                      className="progress-fill" 
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        )}
-      </div>
-    </div>
-  </div>
-)}
-
+        </div>
+      )}
     </div>
   );
 }

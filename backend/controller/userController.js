@@ -13,7 +13,8 @@ import axios from "axios"
 import { extractHashtags, extractMentions, formatPostContent } from "../utils/postHelpers.js";
 import { schedule } from "node-cron";
 import {postToLinkedInHelper} from "../utils/linkedinService.js"
-
+import { exchangeForLongLived } from '../utils/tokenService.js';
+        
 const FB_API_VERSION = "v24.0";
 
 
@@ -143,33 +144,49 @@ export const getUserProfile = async (req, res) => {
   }
 };
 
-
-
 async function refreshFacebookPageToken(pageId, currentToken) {
   try {
     console.log(`🔄 Attempting to refresh token for page ${pageId}...`);
     
-    const tokenResponse = await axios.get(
-      `https://graph.facebook.com/${FB_API_VERSION}/oauth/access_token`,
-      {
-        params: {
-          grant_type: 'fb_exchange_token',
-          client_id: process.env.FACEBOOK_APP_ID,
-          client_secret: process.env.FACEBOOK_APP_SECRET,
-          fb_exchange_token: currentToken
-        }
-      }
-    );
-
-    const newToken = tokenResponse.data.access_token;
+    // ✅ Use existing tokenService function
+    const result = await exchangeForLongLived(currentToken);
+    const newToken = result.access_token;
+    
     console.log(`✅ Token refreshed successfully for page ${pageId}`);
     return newToken;
-    
+
   } catch (error) {
     console.error(`❌ Token refresh failed for page ${pageId}:`, error.response?.data || error.message);
     throw new Error('Token refresh failed. Please reconnect Facebook.');
   }
 }
+
+// async function refreshFacebookPageToken(pageId, currentToken) {
+//   try {
+//     console.log(`🔄 Attempting to refresh token for page ${pageId}...`);
+    
+//     const tokenResponse = await axios.get(
+//       `https://graph.facebook.com/${FB_API_VERSION}/oauth/access_token`,
+//       {
+//         params: {
+//           grant_type: 'fb_exchange_token',
+//           client_id: process.env.APP_ID,
+//           client_secret: process.env.APP_SECRET,
+//           fb_exchange_token: currentToken
+//         }
+//       }
+//     );
+
+//     const newToken = tokenResponse.data.access_token;
+//     console.log(`✅ Token refreshed successfully for page ${pageId}`);
+//     return newToken;
+    
+//   } catch (error) {
+//     console.error(`❌ Token refresh failed for page ${pageId}:`, error.response?.data || error.message);
+//     throw new Error('Token refresh failed. Please reconnect Facebook.');
+//   }
+// }
+
 
 /**
  * Execute Facebook Post (all types)
